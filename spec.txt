@@ -1,0 +1,8 @@
+Network Traffic Monitor & Firewall (GlassWire Alternative)
+Concept: tpt-netguard – A visual, easy-to-understand network activity monitor.
+Tech Stack: Rust (for low-level packet inspection and Windows Filtering Platform integration) + TypeScript (for beautiful real-time graphs).
+Why it’s better: GlassWire has become heavily monetized and restrictive. An open-source alternative can provide real-time per-app bandwidth usage, historical data, and one-click firewall blocking rules without hiding basic features behind a $40/year paywall.
+
+Compatible on Windows, Linux and Archon. https://github.com/tpt-solutions/tpt-archon
+
+Linux & Archon Compatibility: Uses nftables/eBPF on Linux. On Archon, it hooks directly into the microkernel's user-space networking stack, providing real-time, capability-aware traffic monitoring and blocking without the performance penalty of traditional kernel-mode context switches.
