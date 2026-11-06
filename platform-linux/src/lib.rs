@@ -8,18 +8,29 @@
 //! * [`LinuxMonitor`] (Linux only): connection enumeration from `/proc`.
 //! * [`NftFirewall`]: `FirewallBackend` that enforces the panic button through nftables.
 //!
-//! What is deliberately not implemented yet, and reports `Error::Unsupported`:
-//! * Per-app allow/block rules. They need the eBPF `cgroup/connect4`/`connect6` programs (via
-//!   `aya`), which need a BPF build target this crate does not yet have.
-//! * Per-connection byte counters. `/proc` has no byte totals; they need packet capture or eBPF.
+//! * [`ebpf`] and [`firewall::LinuxFirewall`]: per-app allow/block through eBPF `cgroup/sock_addr`
+//!   and tracepoint programs (see `ebpf/` and `docs/linux-ebpf.md`). The panic button stays on
+//!   nftables, which overrides per-app rules.
+//!
+//! What is still not implemented:
+//! * Per-connection byte counters. `/proc` has no byte totals; they still need packet capture
+//!   or an eBPF accounting program.
 
+pub mod app_rules;
 pub mod caps;
+pub mod ebpf_abi;
 pub mod nft;
 pub mod proc_net;
 
 #[cfg(target_os = "linux")]
+pub mod ebpf;
+#[cfg(target_os = "linux")]
+pub mod firewall;
+#[cfg(target_os = "linux")]
 pub mod monitor;
 
+#[cfg(target_os = "linux")]
+pub use firewall::LinuxFirewall;
 #[cfg(target_os = "linux")]
 pub use monitor::LinuxMonitor;
 

@@ -11,3 +11,9 @@ rust-version.workspace = true
 
 [dependencies]
 tpt-netguard-core = { path = "../core", default-features = false }
+
+# eBPF loader (userspace side). The kernel programs are built by build.rs from ebpf/.
+[target.'cfg(target_os = "linux")'.dependencies]
+aya = "0.14"
+libc = "0.2"
+
