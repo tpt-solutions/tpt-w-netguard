@@ -1,0 +1,4 @@
+# Keep line endings LF in the repository and in every working-tree checkout,
+# regardless of core.autocrlf. rustfmt.toml sets newline_style = "Unix", so
+# CRLF checkouts (e.g. Windows CI with autocrlf=true) fail `cargo fmt --check`.
+* text=auto eol=lf
