@@ -24,6 +24,8 @@ tpt-netguard-core = { path = "../core" }
 tpt-netguard-dns = { path = "../dns" }
 tpt-netguard-geoip = { path = "../geoip" }
 tpt-netguard-discovery = { path = "../discovery" }
+# OS toast (Windows) and desktop notification (Linux, over D-Bus) for alerts.
+notify-rust = "4"
 
 [target.'cfg(windows)'.dependencies]
 tpt-netguard-platform-windows = { path = "../platform-windows" }

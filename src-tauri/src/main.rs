@@ -8,15 +8,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod fallback;
+mod names;
+mod os_notify;
 mod sampler;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use names::NameService;
 use serde::Serialize;
-use tauri::menu::{Menu, MenuItem};
+use std::time::SystemTime;
+use tauri::menu::{IsMenuItem, Menu, MenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager, State, WindowEvent};
+use tpt_netguard_core::alerts::Alert;
 use tpt_netguard_core::error::Error;
 use tpt_netguard_core::ipc::Command;
 use tpt_netguard_core::manager::FirewallManager;
@@ -26,7 +31,10 @@ use tpt_netguard_core::service::{Service, Snapshot};
 use tpt_netguard_core::settings::{Settings, SettingsUpdate};
 use tpt_netguard_core::store::Store;
 use tpt_netguard_core::traits::{FirewallBackend, RulePersistence};
-use tpt_netguard_geoip::{aggregate_map, GeoIp, MapCell, MapPoint};
+
+use tpt_netguard_geoip::{
+    aggregate_map, asn_path_beside, owner_label, AsnDb, GeoIp, MapCell, MapPoint,
+};
 
 use fallback::Unenforced;
 use sampler::Published;
@@ -49,6 +57,14 @@ pub struct AppState {
     pub enforcement: Mutex<EnforcementView>,
     pub published: Published,
     geo: Mutex<Option<(PathBuf, GeoIp)>>,
+    asn: Mutex<Option<AsnCache>>,
+}
+
+/// The ASN database, reloaded when its file changes (a refresh replaces it).
+struct AsnCache {
+    path: PathBuf,
+    modified: Option<SystemTime>,
+    db: Option<AsnDb>,
 }
 
 #[derive(Debug, Serialize)]
@@ -101,17 +117,18 @@ fn open_firewall() -> (Box<dyn FirewallBackend>, EnforcementView) {
             .and_then(|s| tpt_netguard_platform_linux::caps::effective_caps(&s))
             .map(tpt_netguard_platform_linux::caps::assess);
         match caps {
-            Some(c) if c.nftables => (
-                Box::new(tpt_netguard_platform_linux::NftFirewall::new()),
-                EnforcementView {
+            Some(c) if c.nftables => {
+                let firewall = tpt_netguard_platform_linux::LinuxFirewall::open();
+                let view = EnforcementView {
                     active: true,
-                    mechanism:
-                        "nftables (panic button only; per-app rules need eBPF, not yet implemented)"
-                            .into(),
-                    reason: None,
+                    mechanism: firewall.mechanism(),
+                    // Per-app rules report their own reason when they are unavailable, so the
+                    // panic button is still shown as enforced.
+                    reason: firewall.ebpf_unavailable().map(str::to_owned),
                     bandwidth: String::new(),
-                },
-            ),
+                };
+                (Box::new(firewall), view)
+            }
             _ => unenforced("needs CAP_NET_ADMIN: run as root or grant the capability".into()),
         }
     }
@@ -183,12 +200,14 @@ fn build_state(dir: &Path) -> std::result::Result<AppState, String> {
         connections: Arc::new(Mutex::new(Vec::new())),
         bandwidth: Arc::new(Mutex::new(String::from("starting"))),
         scheduler: Arc::clone(&scheduler),
+        names: NameService::start(),
     };
     Ok(AppState {
         service: Mutex::new(service),
         enforcement: Mutex::new(enforcement),
         published,
         geo: Mutex::new(None),
+        asn: Mutex::new(None),
     })
 }
 
@@ -200,9 +219,19 @@ fn snapshot(state: State<'_, AppState>) -> std::result::Result<Snapshot, String>
 
 /// The closed set of changes the UI may request. See `tpt_netguard_core::ipc`.
 #[tauri::command]
-fn command(request: Command, state: State<'_, AppState>) -> std::result::Result<(), String> {
-    let mut svc = state.service.lock().map_err(lock_err)?;
-    svc.apply(request).map_err(to_string)
+fn command(
+    request: Command,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let result = {
+        let mut svc = state.service.lock().map_err(lock_err)?;
+        svc.apply(request).map_err(to_string)
+    };
+    // Dismissing or muting an alert changes the tray's recent list. The service lock is released
+    // above, because the refresh takes it again.
+    refresh_tray(&app);
+    result
 }
 
 #[tauri::command]
@@ -212,14 +241,74 @@ fn enforcement(state: State<'_, AppState>) -> std::result::Result<EnforcementVie
     Ok(view)
 }
 
+/// A connection as the UI sees it: the model's fields, plus the remote name when one is known.
+#[derive(Debug, Serialize)]
+struct ConnectionView {
+    #[serde(flatten)]
+    connection: Connection,
+    remote_name: Option<String>,
+    /// Owner of the remote address, such as `AS15169 Google LLC`, from GeoLite2-ASN.
+    remote_org: Option<String>,
+}
+
 #[tauri::command]
-fn connections(state: State<'_, AppState>) -> std::result::Result<Vec<Connection>, String> {
-    Ok(state
+fn connections(state: State<'_, AppState>) -> std::result::Result<Vec<ConnectionView>, String> {
+    let conns = state
         .published
         .connections
         .lock()
         .map_err(lock_err)?
-        .clone())
+        .clone();
+    let ips: Vec<std::net::IpAddr> = conns.iter().map(|c| c.remote.ip()).collect();
+    let owners = owner_labels(&state, &ips)?;
+    Ok(conns
+        .into_iter()
+        .zip(owners)
+        .map(|(connection, remote_org)| {
+            let remote_name = state.published.names.name(connection.remote.ip());
+            ConnectionView {
+                connection,
+                remote_name,
+                remote_org,
+            }
+        })
+        .collect())
+}
+
+/// Owner labels for remote addresses, from GeoLite2-ASN beside the City database. All `None`
+/// when no City database is configured or the ASN file is absent or unreadable.
+fn owner_labels(
+    state: &AppState,
+    ips: &[std::net::IpAddr],
+) -> std::result::Result<Vec<Option<String>>, String> {
+    let city_path = {
+        let svc = state.service.lock().map_err(lock_err)?;
+        svc.settings().geo_db_path.clone()
+    };
+    let none = || vec![None; ips.len()];
+    let Some(asn_path) = city_path.as_deref().and_then(asn_path_beside) else {
+        return Ok(none());
+    };
+    let modified = std::fs::metadata(&asn_path).and_then(|m| m.modified()).ok();
+    let mut slot = state.asn.lock().map_err(lock_err)?;
+    let stale = match &*slot {
+        Some(cache) => cache.path != asn_path || cache.modified != modified || cache.db.is_none(),
+        None => true,
+    };
+    if stale {
+        *slot = Some(AsnCache {
+            path: asn_path.clone(),
+            modified,
+            db: AsnDb::load(&asn_path).ok(),
+        });
+    }
+    let Some(db) = slot.as_ref().and_then(|c| c.db.as_ref()) else {
+        return Ok(none());
+    };
+    Ok(ips
+        .iter()
+        .map(|ip| db.lookup(*ip).map(|info| owner_label(&info)))
+        .collect())
 }
 
 /// Aggregated connections for the Map tab. Offline: uses only the local GeoLite2 database.
@@ -344,7 +433,43 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-fn install_tray(app: &tauri::App) -> tauri::Result<()> {
+/// Id of the tray icon, so that other code can find it and refresh its menu.
+const TRAY_ID: &str = "main-tray";
+/// How many recent alerts the tray menu lists.
+const TRAY_ALERT_LIMIT: usize = 5;
+/// The alert log is read this far back, so that dismissed entries can be skipped.
+const TRAY_ALERT_SCAN: usize = 50;
+/// Longest alert text shown in a tray entry, in characters.
+const TRAY_LABEL_CHARS: usize = 60;
+
+/// Short tray label for an alert, for example `[high] Usage spike: chrome.exe`.
+fn tray_label(alert: &Alert) -> String {
+    let text = format!("[{}] {}", alert.severity.as_str(), alert.message);
+    if text.chars().count() <= TRAY_LABEL_CHARS {
+        return text;
+    }
+    let mut cut: String = text.chars().take(TRAY_LABEL_CHARS - 1).collect();
+    cut.push('…');
+    cut
+}
+
+/// The newest alerts the user has not dismissed, as (alert id, tray label) pairs.
+fn tray_alerts(app: &tauri::AppHandle) -> Vec<(i64, String)> {
+    let state = app.state::<AppState>();
+    let Ok(svc) = state.service.lock() else {
+        return Vec::new();
+    };
+    svc.store()
+        .recent_alerts(TRAY_ALERT_SCAN)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| !a.dismissed)
+        .take(TRAY_ALERT_LIMIT)
+        .map(|a| (a.id, tray_label(&a.alert)))
+        .collect()
+}
+
+fn tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let open = MenuItem::with_id(app, "open", "Open tpt-netguard", true, None::<&str>)?;
     let panic = MenuItem::with_id(
         app,
@@ -353,14 +478,56 @@ fn install_tray(app: &tauri::App) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &panic, &quit])?;
 
-    let mut tray = TrayIconBuilder::new()
+    let alerts = tray_alerts(app);
+    let alert_items: Vec<MenuItem<tauri::Wry>> = if alerts.is_empty() {
+        vec![MenuItem::with_id(
+            app,
+            "no-alerts",
+            "No recent alerts",
+            false,
+            None::<&str>,
+        )?]
+    } else {
+        alerts
+            .iter()
+            .map(|(id, label)| {
+                MenuItem::with_id(app, format!("alert-{id}"), label, true, None::<&str>)
+            })
+            .collect::<tauri::Result<Vec<_>>>()?
+    };
+    let alert_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = alert_items
+        .iter()
+        .map(|item| item as &dyn IsMenuItem<tauri::Wry>)
+        .collect();
+    let recent = Submenu::with_items(app, "Recent alerts", true, &alert_refs)?;
+
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    Menu::with_items(app, &[&open, &panic, &recent, &quit])
+}
+
+/// Rebuilds the tray menu from the alert log. Call it after anything that changes the list.
+/// Must not be called while the service lock is held.
+pub fn refresh_tray(app: &tauri::AppHandle) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
+    if let Ok(menu) = tray_menu(app) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+fn install_tray(app: &tauri::App) -> tauri::Result<()> {
+    let handle = app.handle();
+    let menu = tray_menu(handle)?;
+
+    let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .tooltip("tpt-netguard")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main_window(app),
+            // Alert entries open the window, where the Alerts tab lists them.
+            other if other.starts_with("alert-") => show_main_window(app),
             "panic" => {
                 let state = app.state::<AppState>();
                 let outcome = state.service.lock().map_err(lock_err).and_then(|mut svc| {
@@ -395,6 +562,7 @@ fn main() {
                 connections: Arc::clone(&state.published.connections),
                 bandwidth: Arc::clone(&state.published.bandwidth),
                 scheduler: Arc::clone(&scheduler),
+                names: Arc::clone(&state.published.names),
             };
             app.manage(state);
             sampler::spawn(app.handle().clone(), dir, published);
@@ -425,4 +593,32 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tpt-netguard");
+}
+
+#[cfg(test)]
+mod tray_tests {
+    use super::*;
+    use tpt_netguard_core::alerts::{AlertKind, Severity};
+
+    fn alert(message: &str) -> Alert {
+        Alert {
+            kind: AlertKind::UsageSpike,
+            severity: Severity::Warning,
+            subject: "chrome.exe".into(),
+            message: message.into(),
+            ts_ms: 0,
+        }
+    }
+
+    #[test]
+    fn short_labels_are_kept_whole() {
+        assert_eq!(tray_label(&alert("Usage spike")), "[warning] Usage spike");
+    }
+
+    #[test]
+    fn long_labels_are_cut_on_a_character_boundary() {
+        let label = tray_label(&alert(&"é".repeat(200)));
+        assert_eq!(label.chars().count(), TRAY_LABEL_CHARS);
+        assert!(label.ends_with('…'));
+    }
 }

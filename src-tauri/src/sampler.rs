@@ -9,6 +9,8 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::names::NameService;
+use crate::os_notify::{AlertNotifier, OsNotifier};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
 use tpt_netguard_core::alerts::{Alert, AlertConfig, AlertEngine, WatchedPort};
@@ -23,7 +25,8 @@ use tpt_netguard_core::settings::Settings;
 use tpt_netguard_core::store::{RetentionPolicy, Store};
 use tpt_netguard_core::traits::TrafficMonitor;
 use tpt_netguard_discovery::{LanScanner, NetworkNameResolver};
-use tpt_netguard_geoip::update::{self, EDITION_CITY};
+use tpt_netguard_geoip::asn_path_beside;
+use tpt_netguard_geoip::update::{self, EDITION_ASN, EDITION_CITY};
 use tpt_netguard_geoip::HttpFetcher;
 
 /// How often the LAN is scanned.
@@ -42,6 +45,8 @@ pub struct EventNotifier(pub AppHandle);
 
 impl Notifier for EventNotifier {
     fn notify(&mut self, alert: &Alert) -> Result<()> {
+        // The pipeline persisted the alert before calling us, so the tray's query sees it.
+        crate::refresh_tray(&self.0);
         self.0
             .emit(
                 "alert",
@@ -129,6 +134,8 @@ pub fn log_error(dir: &Path, message: &str) {
 }
 
 /// Refresh the GeoLite2-City database when it is due. Failures keep the last good copy.
+/// Refresh the GeoLite2 City and ASN databases when each is due. The ASN file lives beside the
+/// City file. Failures keep the last good copy of that edition.
 fn refresh_geo(dir: &Path) {
     let settings = Settings::load(&dir.join("settings.json")).unwrap_or_default();
     let (Some(key), Some(path)) = (
@@ -137,20 +144,21 @@ fn refresh_geo(dir: &Path) {
     ) else {
         return;
     };
-    let age = update::file_age(&path, SystemTime::now());
+    refresh_edition(dir, &key, &path, EDITION_CITY);
+    if let Some(asn) = asn_path_beside(&path) {
+        refresh_edition(dir, &key, &asn, EDITION_ASN);
+    }
+}
+
+fn refresh_edition(dir: &Path, key: &str, path: &Path, edition: &'static str) {
+    let age = update::file_age(path, SystemTime::now());
     if !update::is_due(age) {
         return;
     }
     let fetcher = HttpFetcher::new(Duration::from_secs(120));
-    match update::update_database(
-        &fetcher,
-        EDITION_CITY,
-        &key,
-        &path,
-        update::validator_for(EDITION_CITY),
-    ) {
-        Ok(done) => log_error(dir, &format!("GeoLite2 refreshed ({} bytes)", done.bytes)),
-        Err(e) => log_error(dir, &format!("GeoLite2 refresh failed: {e}")),
+    match update::update_database(&fetcher, edition, key, path, update::validator_for(edition)) {
+        Ok(done) => log_error(dir, &format!("{edition} refreshed ({} bytes)", done.bytes)),
+        Err(e) => log_error(dir, &format!("{edition} refresh failed: {e}")),
     }
 }
 
@@ -176,6 +184,7 @@ pub struct Published {
     pub connections: Arc<Mutex<Vec<Connection>>>,
     pub bandwidth: Arc<Mutex<String>>,
     pub scheduler: Arc<Mutex<SamplingScheduler>>,
+    pub names: Arc<NameService>,
 }
 
 pub fn spawn(app: AppHandle, dir: PathBuf, published: Published) {
@@ -215,7 +224,11 @@ fn run(app: &AppHandle, dir: &Path, published: &Published) -> std::result::Resul
         settings.usage_spike_bytes,
         monitor.watched_ports(),
     ));
-    let mut pipeline = AlertPipeline::new(engine, EventNotifier(app.clone()), store);
+    let notifier = AlertNotifier {
+        ui: EventNotifier(app.clone()),
+        os: OsNotifier,
+    };
+    let mut pipeline = AlertPipeline::new(engine, notifier, store);
 
     let devices = pipeline.sink().load_devices().map_err(|e| e.to_string())?;
     let mut scanner = LanScanner::new(DeviceRegistry::from_devices(devices), OuiTable::default());
@@ -259,6 +272,18 @@ fn run(app: &AppHandle, dir: &Path, published: &Published) -> std::result::Resul
 
         if tick % CONNECTION_REFRESH_TICKS == 0 {
             if let Ok(conns) = monitor.as_dyn().enumerate_connections() {
+                // Names come from the configured encrypted resolver, so the list is only queued
+                // for lookup, never held up waiting for one.
+                let upstreams = Settings::load(&dir.join("settings.json"))
+                    .map(|s| s.resolver_upstreams)
+                    .unwrap_or_else(|_| Settings::default().resolver_upstreams);
+                published.names.set_upstreams(&upstreams);
+                published.names.enqueue(
+                    conns
+                        .iter()
+                        .map(|c| c.remote.ip())
+                        .filter(|ip| crate::is_routable(*ip)),
+                );
                 if let Ok(mut slot) = published.connections.lock() {
                     *slot = conns;
                 }

@@ -27,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "deb", "rpm", "appimage"],
+    "targets": ["nsis", "msi", "deb"],
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "category": "Utility",
     "shortDescription": "Network activity monitor and firewall",
@@ -40,8 +40,12 @@
       "../docs/privacy.md"
     ],
     "linux": {
-      "deb": { "depends": ["nftables"] },
-      "rpm": { "depends": ["nftables"] }
+      "deb": {
+        "depends": ["nftables"],
+        "files": {
+          "/usr/share/polkit-1/actions/com.tpt.netguard.policy": "../packaging/linux/com.tpt.netguard.policy"
+        }
+      }
     }
   }
 }
