@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>tpt-netguard</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1 class="app-title">tpt-netguard</h1>
+      <div class="header-actions">
+        <button id="panic-button" type="button" class="panic" aria-pressed="false">
+          Block all internet
+        </button>
+        <button id="theme-toggle" type="button" aria-label="Toggle colour theme">Theme</button>
+      </div>
+    </header>
+
+    <div id="notices" class="notices" role="status" aria-live="polite"></div>
+
+    <nav aria-label="Sections">
+      <div id="tablist" class="tabs" role="tablist" aria-orientation="horizontal"></div>
+    </nav>
+
+    <main id="panels" tabindex="-1"></main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
