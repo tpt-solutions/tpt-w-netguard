@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+[package]
+name = "tpt-netguard-discovery"
+version = "0.1.0"
+description = "LAN device discovery for tpt-netguard: subnet probing, neighbour reading, name resolution"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tpt-netguard-core = { path = "../core" }
+tpt-netguard-dns = { path = "../dns" }

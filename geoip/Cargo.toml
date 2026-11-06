@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+[package]
+name = "tpt-netguard-geoip"
+version = "0.1.0"
+description = "Offline GeoLite2-City lookup and connection-map aggregation for tpt-netguard"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+maxminddb = "0.32"
+ureq = { version = "2.12", default-features = false, features = ["tls", "gzip"] }
+flate2 = "1"
+tar = "0.4"

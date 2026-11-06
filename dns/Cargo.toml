@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+[package]
+name = "tpt-netguard-dns"
+version = "0.1.0"
+description = "App-scoped DNS (wire format, DoH/DoT-ready resolver with fallback) for tpt-netguard"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ureq = { version = "2.12", default-features = false, features = ["tls", "gzip"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "0.26"
+
+[dev-dependencies]
+rcgen = "0.13"
