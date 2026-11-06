@@ -16,6 +16,7 @@ pub mod ipc;
 pub mod manager;
 pub mod mock;
 pub mod model;
+pub mod names;
 pub mod notify;
 pub mod policy;
 pub mod scheduler;
