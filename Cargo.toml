@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+    "core",
+    "platform-windows",
+    "platform-linux",
+    "geoip",
+    "dns",
+    "discovery",
+    "src-tauri",
+]
+
+[workspace.package]
+# SPDX-License-Identifier: MIT OR Apache-2.0
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+repository = "https://github.com/tpt-solutions/tpt-netguard"
+edition = "2021"
+rust-version = "1.85"
