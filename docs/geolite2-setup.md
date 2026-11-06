@@ -21,6 +21,11 @@ Windows or `~/.local/share/tpt-netguard/GeoLite2-City.mmdb` on Linux. Press **Sa
 The app then downloads the database. It checks at least every six hours and refreshes it once it
 is more than a week old. MaxMind requires refreshing at least every 30 days.
 
+The same key also fetches MaxMind's free **GeoLite2 ASN** database, which names the network that
+owns each remote address (the **Owner** column on the Graph tab). It is saved next to the City
+file as `GeoLite2-ASN.mmdb` and refreshed on the same schedule. Without it, the Owner column is
+blank and everything else still works.
+
 If a refresh fails, the app keeps the copy it already has and records the error in the local
 log (if you turned that on).
 

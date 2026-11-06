@@ -7,11 +7,15 @@ Written for: people using the app, not developers.
 Download the installer for your system from the release page:
 
 - **Windows**: the `.msi` or `-setup.exe` installer. Windows asks for administrator permission
-  at launch. Say yes: blocking programs and reading per-connection byte counts need it. If you
-  say no, the app still opens and shows what is monitored, with a note explaining that blocking
-  is off.
-- **Linux**: the `.deb`, `.rpm` or `.AppImage`. Blocking needs the `CAP_NET_ADMIN` capability
-  (or root). See [linux-elevation.md](linux-elevation.md) for the three ways to grant it.
+  at launch. Say yes: blocking programs needs it. If you say no, the app still opens and shows
+  what is monitored, with a note explaining that blocking is off.
+- **Linux**: the `.deb` package. It installs a polkit policy, so launching from the menu asks for
+  your password once per session. Blocking needs root or the `CAP_BPF` and `CAP_NET_ADMIN`
+  capabilities. See [linux-elevation.md](linux-elevation.md) for the ways to grant them.
+
+**The installers are not code-signed.** Windows SmartScreen will warn that the publisher is
+unknown: choose **More info**, then **Run anyway**. Check that the file came from the release
+page before you run it. On Linux, the `.deb` is installed with your package manager as usual.
 
 ## The tabs
 
