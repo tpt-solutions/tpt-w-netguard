@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  SPDX-License-Identifier: MIT OR Apache-2.0
+  polkit action for graphical launches through pkexec (see docs/linux-elevation.md).
+  Installed to /usr/share/polkit-1/actions/. Authentication is required by default; an active
+  desktop session keeps the authorisation for a while, so the user is not asked repeatedly.
+-->
+<policyconfig>
+  <vendor>TPT Solutions</vendor>
+  <vendor_url>https://github.com/tpt-solutions/tpt-netguard</vendor_url>
+
+  <action id="com.tpt.netguard.run">
+    <description>Run tpt-netguard with network monitoring and firewall rights</description>
+    <message>Authentication is required to monitor and block network traffic</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/tpt-netguard</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>
