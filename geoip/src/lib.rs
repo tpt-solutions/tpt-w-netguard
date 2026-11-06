@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::net::IpAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use maxminddb::{geoip2, Reader};
@@ -59,6 +59,23 @@ impl Fetcher for HttpFetcher {
 pub struct AsnInfo {
     pub number: u32,
     pub organization: Option<String>,
+}
+
+/// File name of the ASN edition, expected in the same folder as the City database.
+pub const ASN_FILE_NAME: &str = "GeoLite2-ASN.mmdb";
+
+/// Where the ASN database lives, given the City database path: the same folder.
+pub fn asn_path_beside(city_path: &Path) -> Option<PathBuf> {
+    Some(city_path.parent()?.join(ASN_FILE_NAME))
+}
+
+/// A short owner label for an address, such as `AS15169 Google LLC` (or `AS15169` when the
+/// organisation is not named in the database).
+pub fn owner_label(info: &AsnInfo) -> String {
+    match &info.organization {
+        Some(org) => format!("AS{} {org}", info.number),
+        None => format!("AS{}", info.number),
+    }
 }
 
 pub struct AsnDb {
@@ -281,5 +298,35 @@ mod tests {
             .unwrap();
         assert_eq!(sydney.connections, 2);
         assert_eq!(sydney.bytes, 150);
+    }
+}
+
+#[cfg(test)]
+mod asn_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn asn_database_is_expected_beside_the_city_database() {
+        let city = Path::new("/data/geo/GeoLite2-City.mmdb");
+        assert_eq!(
+            asn_path_beside(city),
+            Some(PathBuf::from("/data/geo/GeoLite2-ASN.mmdb"))
+        );
+        assert_eq!(asn_path_beside(Path::new("")), None);
+    }
+
+    #[test]
+    fn owner_labels_name_the_network_and_fall_back_to_the_number() {
+        let named = AsnInfo {
+            number: 15169,
+            organization: Some("Google LLC".into()),
+        };
+        let unnamed = AsnInfo {
+            number: 64500,
+            organization: None,
+        };
+        assert_eq!(owner_label(&named), "AS15169 Google LLC");
+        assert_eq!(owner_label(&unnamed), "AS64500");
     }
 }
