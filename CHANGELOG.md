@@ -27,8 +27,18 @@ All notable changes to tpt-netguard are recorded here. The format follows
 - LAN discovery: subnet probing, neighbour reading, mDNS and NetBIOS naming, new-device alerts
   with a first-scan baseline.
 - Encrypted DNS: DoH and DoT transports (tested against local servers), upstream configuration.
-- Geo-IP: scheduled GeoLite2-City refresh with validation and atomic replacement; ASN reader.
+- Geo-IP: scheduled GeoLite2-City and GeoLite2-ASN refresh with validation and atomic replacement;
+  an Owner column on the Graph tab names the network behind each remote address.
 - Alerts: delivery pipeline (persist, then notify) and in-app feed.
+- OS notifications for warning and critical alerts (Windows toast, Linux desktop notification).
+- Linux per-app firewall rules through eBPF: connect and datagram-send hooks on the cgroup v2
+  root, fork inheritance, exec-event checks with a 5 ms pending window, a kernel-level enforcement
+  test, and an MIT-licensed object (no GPL-only helpers). See
+  `docs/linux-ebpf.md`.
+- Tray menu: "Recent alerts" submenu with the newest undismissed alerts.
+- Graph tab: busiest-programs chart with a text legend.
+- Connection list shows reverse-DNS names for routable remote addresses, looked up through the
+  configured DoH/DoT resolver on worker threads and cached.
 - Tauri desktop shell: commands, background sampler, throttled events, tray, first-run walkthrough,
   elevation manifest (release builds).
 - Frontend: Graph, Usage, Firewall, Things, Map, Alerts and Settings tabs.
@@ -42,8 +52,7 @@ All notable changes to tpt-netguard are recorded here. The format follows
 - Platform crates depend on core without the SQLite feature.
 
 ### Not yet implemented
-- ETW per-app bandwidth; ALE classify-callback new-connection events (polling is used instead).
-- eBPF per-app enforcement on Linux; per-connection byte counters on Linux.
-- OS-native notifications and tray recent-alerts entries.
-- Per-app bandwidth graph; ASN information in the UI.
-- Installers built and signed; tagged release (publishing is a separate step).
+- ETW per-app bandwidth (deferred to post-v1); ALE classify-callback new-connection events
+  (polling is used instead).
+- Per-connection byte counters on Linux.
+- Installers built (unsigned by decision); tagged release (publishing is a separate step).

@@ -37,6 +37,26 @@ Decisions locked in for this roadmap:
   connection/alert log, with a configurable retention window (unlike tpt-monitor's
   in-memory-only history — "historical data" is an explicit spec requirement here).
 
+Decisions approved after the v1 review (these supersede the locked items above where they differ):
+- **ETW is post-v1.** Windows per-app bandwidth uses IP Helper polling for v1.
+- **Linux per-app enforcement uses eBPF in v1**, not panic-button-only. Byte counters remain open.
+- **No code signing** for any release artifact. Installers ship unsigned; install docs must say
+  Windows SmartScreen will warn.
+- **ASN is in v1** (same MaxMind license key; ASN edition refreshed by the same job).
+- **OUI vendor data**: not bundled. IEEE's public pages offer the listing for download but do not
+  state redistribution terms clearly, so the app keeps reading a user-supplied `oui.txt`. *(open:
+  needs a written answer from IEEE or a legal check before bundling)*
+- **Connection names** use the configured DoH/DoT resolver; **LAN addresses never leave the LAN**
+  (Things labelling stays on mDNS/NetBIOS).
+- **OS notifications** for warning and critical alerts only.
+- **Linux packaging**: `.deb` plus a `pkexec` launch path first; AppImage later.
+- **eBPF object is MIT, not GPL.** It uses no GPL-only kernel helpers, so the repository has no GPL
+  component. Decided: accept the exec gap. While rules exist, a new program is refused network access
+  for at most 5 ms until the loader checks it. Measured: no blocked program got through in 2000
+  trials; 3 and 4 in 1000 fresh unblocked programs had a first connect refused (see
+  `docs/linux-ebpf.md`).
+- **Test matrix**: Windows 10 and 11; Ubuntu LTS and Fedora on X11 and Wayland (user-run).
+
 ---
 
 ## Status Summary
@@ -47,14 +67,14 @@ Decisions locked in for this roadmap:
 | 1  | Core Data Model & Traffic Engine                   | ✅ Complete (core crate) |
 | 2  | Historical Data Store                              | ✅ Complete (core crate) |
 | 3  | Windows Backend                                    | 🟡 IP Helper monitoring and WFP enforcement done; ETW not started |
-| 4  | Linux Backend                                      | 🟡 Attribution and nftables panic button done; eBPF and byte counters pending |
-| 5  | Firewall Rule Engine & Panic Button                | 🟡 Windows wired end to end; Linux enforces the panic button only |
+| 4  | Linux Backend                                      | 🟡 Attribution, nftables panic button and eBPF per-app enforcement done; byte counters pending |
+| 5  | Firewall Rule Engine & Panic Button                | ✅ Complete on Windows (WFP) and Linux (eBPF per-app, nftables panic button) |
 | 6  | LAN Device Discovery ("Things")                    | 🟡 Scanning, naming and alerts done; OUI vendor data not bundled |
-| 7  | Geo-IP & Connection Map                            | 🟡 Loader, refresh job and map model done; ASN not in UI |
-| 8  | Encrypted DNS for App Lookups                      | 🟡 DoH/DoT transports done; not yet used for connection names |
-| 9  | Alerts Engine                                      | 🟡 Engine and in-app feed done; OS notifications pending |
-| 10 | Tauri Shell & IPC Layer                            | 🟡 Shell, commands, events and tray done; tray recent alerts pending |
-| 11 | Frontend (Graph/Usage/Firewall/Things/Map/Alerts)  | 🟡 All seven tabs built; per-app graph pending |
+| 7  | Geo-IP & Connection Map                            | ✅ Complete (City and ASN databases; Owner column on the Graph tab) |
+| 8  | Encrypted DNS for App Lookups                      | 🟡 Connection-list names via DoH/DoT done; Things labeling still mDNS/NetBIOS only |
+| 9  | Alerts Engine                                      | ✅ Complete (in-app feed; OS notifications for warning and critical) |
+| 10 | Tauri Shell & IPC Layer                            | ✅ Complete (shell, commands, events, tray with recent alerts) |
+| 11 | Frontend (Graph/Usage/Firewall/Things/Map/Alerts)  | ✅ Complete (all seven tabs; per-program graph included) |
 | 12 | Archon Support (Design Only)                       | 🟡 Design draft and feature stubs; open questions need the tpt-archon team |
 | 13 | Performance & Polish                               | 🟡 Onboarding, opt-in log and placeholder icon done; profiling pending |
 | 14 | Testing & QA                                       | 🟡 Unit and wire-contract tests done; integration and manual QA pending |
@@ -106,7 +126,7 @@ Decisions locked in for this roadmap:
 - [x] Unit tests: rollup correctness, retention pruning
 
 ## Phase 3 — Windows Backend
-- [ ] Per-app bandwidth via ETW real-time trace session (Microsoft-Windows-TCPIP provider),  *(IP Helper path done; ETW not started)*
+- [ ] Per-app bandwidth via ETW real-time trace session (Microsoft-Windows-TCPIP provider),  *(deferred to post-v1 by decision: IP Helper polling is the v1 path)*
       falling back to IP Helper API (`GetExtendedTcpTable`/`GetExtendedUdpTable` owning-PID
       mapping + `GetPerTcpConnectionEStats` byte counters) where ETW data is unavailable
 - [x] Firewall enforcement via WFP user-mode ALE API: add/remove block filters at  *(implemented; runtime check needs an elevated run)*
@@ -123,9 +143,12 @@ Decisions locked in for this roadmap:
       (nethogs-style), mirroring tpt-monitor's existing technique
 - [x] Firewall enforcement, coarse rules: nftables via netlink (`rustables`/`nftnl` crate) for  *(done through the `nft` CLI instead of netlink; see platform-linux/src/nft.rs)*
       block-all panic button and port/protocol rules
-- [ ] Firewall enforcement, per-app rules: eBPF via `aya` (pure Rust, no libbpf/clang runtime
-      dependency), `cgroup/connect4`/`connect6` programs consulting a userspace-maintained BPF
-      map keyed by PID/cgroup id
+- [x] Firewall enforcement, per-app rules: eBPF via `aya` (no libbpf runtime dependency),
+      `cgroup/connect4`/`connect6`/`sendmsg4`/`sendmsg6` programs consulting a userspace-maintained
+      BPF map of blocked processes, plus fork/exec tracepoints; exec-time path matching is replaced by
+      a userspace check, see the license decision above  *(implemented in `platform-linux/ebpf/`
+      and `src/ebpf.rs`; the kernel test passes in a container and in the WSL distro; see
+      `docs/linux-ebpf.md`)*
 - [x] Document/implement root-launch elevation path (`pkexec`/`sudo`; polkit policy file for GUI
       launch) plus `CAP_NET_ADMIN`/`CAP_BPF` capability requirements
 - [ ] Verify behavior across at least one major distro (X11 + Wayland), and across cgroup v1/v2
@@ -150,16 +173,15 @@ Decisions locked in for this roadmap:
 
 ## Phase 7 — Geo-IP & Connection Map
 - [x] MaxMind GeoLite2-City database loader (license key config, local storage path)
-- [x] Scheduled update job (respecting MaxMind's redistribution/refresh terms)  *(City edition only; ASN is not refreshed yet)*
-- [ ] IP → location + ASN/org lookup for remote connection endpoints  *(ASN reader exists; not surfaced in the UI yet)*
+- [x] Scheduled update job (respecting MaxMind's redistribution/refresh terms)  *(City and ASN editions, same key and schedule)*
+- [x] IP → location + ASN/org lookup for remote connection endpoints  *(Owner column on the Graph tab; the Map tab still shows location only)*
 - [x] Map data model (aggregated connections by location) for the frontend Map tab
 - [x] Graceful degradation when no license key/DB is configured (map tab disabled, rest of app
       unaffected)
 - [x] Unit tests: DB lookup, missing-DB fallback
 
 ## Phase 8 — Encrypted DNS for App Lookups
-- [x] DoH/DoT client for the app's own hostname/reverse-DNS resolution needs (connection list,  *(transports tested against local servers; not yet used for connection-list names)*
-      Things labeling)
+- [x] DoH/DoT client for the app's own hostname/reverse-DNS resolution needs (connection list)  *(connection list uses it: routable addresses only, cached, looked up off the sampling loop; Things labeling still uses mDNS/NetBIOS only)*
 - [x] Configurable upstream resolver (default + user override), timeout/fallback handling
 - [x] Explicitly scoped: no system DNS proxying or OS resolver reconfiguration
 - [x] Unit tests: resolver fallback, malformed-response handling
@@ -170,7 +192,7 @@ Decisions locked in for this roadmap:
       SSH/VNC port + process heuristics on Linux)
 - [x] Alert model: rationale, affected app/device, timestamp, severity; persisted to the alert
       log (Phase 2)
-- [ ] Notification delivery (OS-native notification + in-app Alerts tab)  *(in-app feed done; OS toast not wired)*
+- [x] Notification delivery (OS-native notification + in-app Alerts tab)  *(OS toast or D-Bus notification for warning and critical alerts; info stays in the in-app feed; toast not yet checked on a live desktop)*
 - [x] Per-rule mute/dismiss + "don't alert again for this app/device" overrides
 - [x] Unit tests: fixture connection/device histories → expected alerts, mute suppression
 
@@ -179,13 +201,13 @@ Decisions locked in for this roadmap:
 - [x] Event push from Rust sampling/alert loops to frontend (Tauri events/channels), throttled
       for high-connection-count machines
 - [x] Command layer for firewall actions, rule CRUD, alert dismiss/mute, Things device labeling
-- [ ] System tray icon with quick actions (panic button, open dashboard, recent alerts)  *(panic, open and quit done; recent-alerts entries missing)*
+- [x] System tray icon with quick actions (panic button, open dashboard, recent alerts)  *(recent-alerts submenu refreshes when an alert is raised or a command runs)*
 - [x] IPC boundary tests (command validation, no arbitrary rule/action injection beyond intended
       surface)
 
 ## Phase 11 — Frontend (Graph / Usage / Firewall / Things / Map / Alerts / Settings)
 - [x] App shell (plain TS/HTML + Vite), light/dark theme, GlassWire-style fixed tabs
-- [ ] Graph tab: real-time total + per-app bandwidth graph (up/down)  *(total graph and connection list done; per-app graph missing)*
+- [x] Graph tab: real-time total + per-app bandwidth graph (up/down)  *(total graph, busiest-programs graph with a text legend, and connection list; per-app up/down split is not shown)*
 - [x] Usage tab: per-app historical bandwidth (sortable/filterable, date-range picker over
       Phase 2 rollups)
 - [x] Firewall tab: per-app allow/block list, panic button, rule management UI
