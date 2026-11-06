@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "tpt-netguard",
+  "version": "0.1.0",
+  "identifier": "com.tpt-solutions.netguard",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "tpt-netguard",
+        "width": 1120,
+        "height": 740,
+        "minWidth": 820,
+        "minHeight": 560
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi", "deb", "rpm", "appimage"],
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "category": "Utility",
+    "shortDescription": "Network activity monitor and firewall",
+    "longDescription": "tpt-netguard shows per-app network activity and lets you block apps, with an emergency block-all switch. Geo-IP is offline; nothing is sent to third parties.",
+    "copyright": "Copyright (c) TPT Solutions. Dual-licensed under MIT OR Apache-2.0.",
+    "resources": [
+      "../LICENSE-MIT",
+      "../LICENSE-APACHE",
+      "../NOTICE",
+      "../docs/privacy.md"
+    ],
+    "linux": {
+      "deb": { "depends": ["nftables"] },
+      "rpm": { "depends": ["nftables"] }
+    }
+  }
+}

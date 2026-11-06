@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+[package]
+name = "tpt-netguard-app"
+version = "0.1.0"
+description = "tpt-netguard desktop shell: Tauri commands, sampling loop, tray"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "tpt-netguard"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tpt-netguard-core = { path = "../core" }
+tpt-netguard-dns = { path = "../dns" }
+tpt-netguard-geoip = { path = "../geoip" }
+tpt-netguard-discovery = { path = "../discovery" }
+
+[target.'cfg(windows)'.dependencies]
+tpt-netguard-platform-windows = { path = "../platform-windows" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tpt-netguard-platform-linux = { path = "../platform-linux" }
