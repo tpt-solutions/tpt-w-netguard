@@ -12,7 +12,7 @@ import {
   type Backend,
 } from "./api";
 import { el, announce } from "./dom";
-import { pushBounded } from "./format";
+import { appWindow, pushBounded } from "./format";
 import { isTabId, nextTabIndex, nextTheme, TABS, type Theme, type TabId } from "./tabs";
 import {
   alertsView,
@@ -93,6 +93,7 @@ export function start(): void {
     enforcement: null,
     connections: [],
     bandwidth: [],
+    appBandwidth: [],
     notify,
     refresh,
   };
@@ -212,10 +213,10 @@ export function start(): void {
     },
       el("h2", { id: "onboarding-title" }, "Welcome to tpt-netguard"),
       el("ol", {},
-        el("li", {}, "Administrator rights: blocking and per-connection byte counts need them. Windows asks once at launch."),
+        el("li", {}, "Administrator rights (root on Linux) are needed to block programs. Windows asks once at launch."),
         el("li", {}, "Block a program: open Firewall, enter its path, choose Block. The Block-all button in the header overrides every rule."),
         el("li", {}, "Map: optional. Add your own free MaxMind license key and a GeoLite2 database in Settings. Lookups stay on this computer."),
-        el("li", {}, "Privacy: nothing is sent to third parties. DNS lookups for names use the encrypted resolvers you choose."),
+        el("li", {}, "Privacy: apart from the MaxMind map downloads you set up, the only traffic is name lookups for remote addresses through the encrypted resolvers in Settings, which you can change there. Local network addresses are never sent."),
       ),
       el("div", { class: "actions" },
         el("button", {
@@ -266,6 +267,7 @@ export function start(): void {
     const received = batch.reduce((n, s) => n + s.bytes_received, 0);
     const point: BandwidthPoint = { t: Date.now(), sent, received };
     ctx.bandwidth = pushBounded(ctx.bandwidth, point, BANDWIDTH_HISTORY);
+    ctx.appBandwidth = pushBounded(ctx.appBandwidth, appWindow(point.t, batch), BANDWIDTH_HISTORY);
     views.graph.update(ctx);
   });
   backend.on<{ message: string }>("alert", (alert) => {

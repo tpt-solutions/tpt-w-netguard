@@ -12,8 +12,12 @@ import {
   linePath,
   nextRuleId,
   project,
+  appWindow,
+  type AppWindow,
   pushBounded,
+  remoteLabel,
   splitLines,
+  topAppSeries,
 } from "./format";
 
 describe("formatBytes", () => {
@@ -59,6 +63,51 @@ describe("linePath", () => {
 
   it("does not draw negative values below the baseline", () => {
     expect(linePath([-5, 10], 100, 50)).toContain("M0.0,50.0");
+  });
+
+  it("scales against a shared maximum when one is given", () => {
+    expect(linePath([0, 5], 100, 50, 10)).toBe("M0.0,50.0 L100.0,25.0");
+  });
+});
+
+describe("remoteLabel", () => {
+  it("shows the reverse-DNS name with the address, or the address alone", () => {
+    expect(remoteLabel("142.250.72.14:443", "lhr25s33.example.net")).toBe(
+      "lhr25s33.example.net (142.250.72.14:443)",
+    );
+    expect(remoteLabel("142.250.72.14:443", null)).toBe("142.250.72.14:443");
+    expect(remoteLabel("142.250.72.14:443")).toBe("142.250.72.14:443");
+    expect(remoteLabel("142.250.72.14:443", "")).toBe("142.250.72.14:443");
+  });
+});
+
+describe("per-app series", () => {
+  it("sums sent and received per app within one window", () => {
+    const w = appWindow(1, [
+      { app: "a.exe", bytes_sent: 10, bytes_received: 5 },
+      { app: "a.exe", bytes_sent: 1, bytes_received: 1 },
+      { app: "b.exe", bytes_sent: 3, bytes_received: 0 },
+    ]);
+    expect(w).toEqual({ t: 1, apps: { "a.exe": 17, "b.exe": 3 } });
+  });
+
+  it("keeps the busiest apps, zero-filling windows where an app was silent", () => {
+    const windows: AppWindow[] = [
+      { t: 1, apps: { "a.exe": 5, "b.exe": 50 } },
+      { t: 2, apps: { "c.exe": 900 } },
+      { t: 3, apps: { "a.exe": 5, "b.exe": 50 } },
+    ];
+    expect(topAppSeries(windows, 2)).toEqual([
+      { app: "c.exe", values: [0, 900, 0] },
+      { app: "b.exe", values: [50, 0, 50] },
+    ]);
+  });
+
+  it("breaks ties by name and handles empty input", () => {
+    const windows = [{ t: 1, apps: { "z.exe": 4, "a.exe": 4 } }];
+    expect(topAppSeries(windows, 5).map((s) => s.app)).toEqual(["a.exe", "z.exe"]);
+    expect(topAppSeries([], 5)).toEqual([]);
+    expect(topAppSeries(windows, 0)).toEqual([]);
   });
 });
 

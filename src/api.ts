@@ -72,6 +72,10 @@ export interface Connection {
   state: "established" | "listening" | "closed" | "other";
   first_seen_ms: number;
   last_seen_ms: number;
+  /** Reverse-DNS name for the remote address, when one has been looked up. */
+  remote_name?: string | null;
+  /** Owner of the remote address (for example `AS15169 Google LLC`), from GeoLite2-ASN. */
+  remote_org?: string | null;
 }
 
 export interface ByteSample {

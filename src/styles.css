@@ -287,6 +287,68 @@ table.data th {
   vector-effect: non-scaling-stroke;
 }
 
+/* Categorical series colours for multi-line charts. Each hue is paired with a text label in the
+   legend, so colour is never the only way to tell programs apart. */
+.series-0,
+.swatch.series-0 { --series: #1f6feb; }
+.series-1,
+.swatch.series-1 { --series: #d9480f; }
+.series-2,
+.swatch.series-2 { --series: #2b8a3e; }
+.series-3,
+.swatch.series-3 { --series: #9c36b5; }
+.series-4,
+.swatch.series-4 { --series: #c2255c; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .series-0,
+  :root:not([data-theme="light"]) .swatch.series-0 { --series: #58a6ff; }
+  :root:not([data-theme="light"]) .series-1,
+  :root:not([data-theme="light"]) .swatch.series-1 { --series: #ff922b; }
+  :root:not([data-theme="light"]) .series-2,
+  :root:not([data-theme="light"]) .swatch.series-2 { --series: #69db7c; }
+  :root:not([data-theme="light"]) .series-3,
+  :root:not([data-theme="light"]) .swatch.series-3 { --series: #da77f2; }
+  :root:not([data-theme="light"]) .series-4,
+  :root:not([data-theme="light"]) .swatch.series-4 { --series: #f06595; }
+}
+
+:root[data-theme="dark"] .series-0,
+:root[data-theme="dark"] .swatch.series-0 { --series: #58a6ff; }
+:root[data-theme="dark"] .series-1,
+:root[data-theme="dark"] .swatch.series-1 { --series: #ff922b; }
+:root[data-theme="dark"] .series-2,
+:root[data-theme="dark"] .swatch.series-2 { --series: #69db7c; }
+:root[data-theme="dark"] .series-3,
+:root[data-theme="dark"] .swatch.series-3 { --series: #da77f2; }
+:root[data-theme="dark"] .series-4,
+:root[data-theme="dark"] .swatch.series-4 { --series: #f06595; }
+
+path.series[class*="series-"] {
+  stroke: var(--series);
+}
+
+.legend {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 2px;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+  background: var(--series);
+}
+
 .map {
   height: auto;
   max-height: 360px;

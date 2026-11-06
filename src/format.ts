@@ -39,6 +39,49 @@ export function pushBounded<T>(items: readonly T[], item: T, max: number): T[] {
   return next.length > max ? next.slice(next.length - max) : next;
 }
 
+/** A remote endpoint for display: the reverse-DNS name with the address after it, when known. */
+export function remoteLabel(remote: string, name?: string | null): string {
+  return name ? `${name} (${remote})` : remote;
+}
+
+/** Bytes per app in one sampling window, keyed by app name. */
+export interface AppWindow {
+  t: number;
+  apps: Record<string, number>;
+}
+
+/** Sums the sent and received bytes of one sampling batch per app. */
+export function appWindow(
+  t: number,
+  samples: readonly { app: string; bytes_sent: number; bytes_received: number }[],
+): AppWindow {
+  const apps: Record<string, number> = {};
+  for (const s of samples) {
+    apps[s.app] = (apps[s.app] ?? 0) + s.bytes_sent + s.bytes_received;
+  }
+  return { t, apps };
+}
+
+/**
+ * The `limit` apps with the most bytes across all windows, each with one value per window
+ * (zero where the app was silent). Ties are broken by name so the legend order is stable.
+ */
+export function topAppSeries(
+  windows: readonly AppWindow[],
+  limit: number,
+): { app: string; values: number[] }[] {
+  const totals = new Map<string, number>();
+  for (const w of windows) {
+    for (const [app, bytes] of Object.entries(w.apps)) {
+      totals.set(app, (totals.get(app) ?? 0) + bytes);
+    }
+  }
+  return [...totals.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, Math.max(0, limit))
+    .map(([app]) => ({ app, values: windows.map((w) => w.apps[app] ?? 0) }));
+}
+
 export interface Point {
   x: number;
   y: number;
@@ -48,9 +91,14 @@ export interface Point {
  * SVG path for a line through `values` scaled into a `width` x `height` box.
  * An empty or single-value series yields an empty or single-point path.
  */
-export function linePath(values: readonly number[], width: number, height: number): string {
+export function linePath(
+  values: readonly number[],
+  width: number,
+  height: number,
+  sharedMax?: number,
+): string {
   if (values.length === 0) return "";
-  const max = Math.max(1, ...values);
+  const max = Math.max(1, sharedMax ?? 0, ...values);
   const step = values.length > 1 ? width / (values.length - 1) : 0;
   return values
     .map((v, i) => {

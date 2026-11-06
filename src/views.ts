@@ -29,7 +29,10 @@ import {
   linePath,
   nextRuleId,
   project,
+  remoteLabel,
   splitLines,
+  topAppSeries,
+  type AppWindow,
 } from "./format";
 
 export interface BandwidthPoint {
@@ -44,6 +47,8 @@ export interface Ctx {
   enforcement: EnforcementView | null;
   connections: Connection[];
   bandwidth: BandwidthPoint[];
+  /** Per-program bytes for each recent sampling window, oldest first. */
+  appBandwidth: AppWindow[];
   notify(message: string, kind?: "info" | "error"): void;
   refresh(): Promise<void>;
 }
@@ -72,18 +77,25 @@ function field(label: string, control: HTMLElement, hint?: string): HTMLElement 
 
 /* ------------------------------------------------------------------ Graph */
 
+/** Programs drawn on the per-program graph; the rest are left out of the chart. */
+const APP_SERIES_LIMIT = 5;
+
 export function graphView(): View {
   const status = el("p", { class: "hint", "aria-live": "polite" });
   const chartBox = el("div", { class: "chart", role: "img", "aria-label": "Bytes per sampling window, last few minutes" });
   const now = el("p", { class: "stat" });
+  const appChart = el("div", { class: "chart", role: "img", "aria-label": "Bytes per program over the last few minutes" });
+  const appLegend = el("ul", { class: "legend" });
   const connBody = el("div", {});
   const root = el(
     "div",
     { class: "view" },
     section("Live bandwidth", status, now, chartBox),
+    section("Busiest programs (last few minutes)", appChart, appLegend),
     section("Connections (largest first)", connBody),
   );
   let lastChart = "";
+  let lastAppChart = "";
   return {
     root,
     update(ctx) {
@@ -103,6 +115,34 @@ export function graphView(): View {
             svg("path", { d: path, class: "series", fill: "none" })),
         );
       }
+      const perApp = topAppSeries(ctx.appBandwidth, APP_SERIES_LIMIT);
+      const appMax = Math.max(1, ...perApp.flatMap((s) => s.values));
+      const appKey = JSON.stringify([perApp.map((s) => s.app), appMax, perApp.map((s) => s.values)]);
+      if (appKey !== lastAppChart) {
+        lastAppChart = appKey;
+        appChart.replaceChildren(
+          perApp.length === 0
+            ? el("p", { class: "empty" }, "No per-program traffic yet.")
+            : svg(
+                "svg",
+                { viewBox: "0 0 600 140", preserveAspectRatio: "none", class: "chart-svg" },
+                ...perApp.map((s, i) =>
+                  svg("path", { d: linePath(s.values, 600, 140, appMax), class: `series series-${i}`, fill: "none" }),
+                ),
+              ),
+        );
+        appLegend.replaceChildren(
+          ...perApp.map((s, i) => {
+            const total = s.values.reduce((n, v) => n + v, 0);
+            return el(
+              "li",
+              {},
+              el("span", { class: `swatch series-${i}`, "aria-hidden": "true" }),
+              `${baseName(s.app)} — ${formatBytes(total)}`,
+            );
+          }),
+        );
+      }
       const top = [...ctx.connections]
         .sort((a, b) => b.bytes_sent + b.bytes_received - (a.bytes_sent + a.bytes_received))
         .slice(0, 20);
@@ -110,10 +150,11 @@ export function graphView(): View {
         top.length === 0
           ? el("p", { class: "empty" }, "No connections reported yet.")
           : table(
-              ["Program", "Remote", "State", "Sent", "Received"],
+              ["Program", "Remote", "Owner", "State", "Sent", "Received"],
               top.map((c) => [
                 c.process_name,
-                c.remote,
+                remoteLabel(c.remote, c.remote_name),
+                c.remote_org ?? "—",
                 `${c.protocol.toUpperCase()} ${c.state}`,
                 formatBytes(c.bytes_sent),
                 formatBytes(c.bytes_received),
