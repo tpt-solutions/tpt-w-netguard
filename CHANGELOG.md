@@ -1,0 +1,49 @@
+# Changelog
+
+All notable changes to tpt-netguard are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[SemVer](docs/versioning.md).
+
+## [Unreleased]
+
+### Added
+- Cargo workspace with `core`, `dns`, `geoip` and placeholder platform crates.
+- Core: connection/traffic model; `TrafficMonitor` and `FirewallBackend` traits; per-app
+  aggregation; sampling scheduler with unfocused slow-down.
+- Core: firewall decision logic (panic button, profile-scoped rules, fail-closed conflicts).
+- Core: alerts engine (new app, new device, usage spike, inbound RDP/SSH/VNC) with mutes.
+- Core: LAN device parsing (`/proc/net/arp`, `arp -a`), OUI vendor lookup, new-vs-known tracking.
+- Core: SQLite history store with migrations, raw → hourly → daily rollups and retention.
+- DNS: RFC 1035 wire format with defensive parsing; resolver with upstream fallback.
+- Geo-IP: offline GeoLite2-City loading that degrades to disabled; connection-map aggregation.
+- Frontend: TypeScript/Vite shell with the seven fixed tabs, keyboard navigation and a theme toggle.
+- CI workflow (fmt, clippy, test on Windows and Linux).
+- Documentation: README, privacy explainer, Archon design draft.
+
+- Windows backend: IP Helper connection attribution and per-connection byte counters; WFP ALE
+  enforcement with crash-safe dynamic filters and a panic-button filter.
+- Linux backend: `/proc` socket attribution, capability detection, nftables panic button.
+- Firewall manager with reconcile and rollback; service layer for validated UI commands.
+- LAN discovery: subnet probing, neighbour reading, mDNS and NetBIOS naming, new-device alerts
+  with a first-scan baseline.
+- Encrypted DNS: DoH and DoT transports (tested against local servers), upstream configuration.
+- Geo-IP: scheduled GeoLite2-City refresh with validation and atomic replacement; ASN reader.
+- Alerts: delivery pipeline (persist, then notify) and in-app feed.
+- Tauri desktop shell: commands, background sampler, throttled events, tray, first-run walkthrough,
+  elevation manifest (release builds).
+- Frontend: Graph, Usage, Firewall, Things, Map, Alerts and Settings tabs.
+- Settings persistence, opt-in local error log (secrets redacted), Archon feature stubs.
+- Linux elevation: polkit policy file and documentation.
+- User guide, GeoLite2 setup guide, triage process, NOTICE with MaxMind attribution.
+- CI: frontend job; Linux runners install WebKitGTK for the Tauri crate.
+
+### Changed
+- Core: `FirewallBackend` is implemented for boxed backends; manager rolls back refused changes.
+- Platform crates depend on core without the SQLite feature.
+
+### Not yet implemented
+- ETW per-app bandwidth; ALE classify-callback new-connection events (polling is used instead).
+- eBPF per-app enforcement on Linux; per-connection byte counters on Linux.
+- OS-native notifications and tray recent-alerts entries.
+- Per-app bandwidth graph; ASN information in the UI.
+- Installers built and signed; tagged release (publishing is a separate step).

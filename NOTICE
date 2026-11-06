@@ -1,0 +1,18 @@
+tpt-netguard
+Copyright (c) TPT Solutions
+
+Licensed under either of the MIT license (LICENSE-MIT) or the Apache License, Version 2.0
+(LICENSE-APACHE), at your option.
+
+Third-party data
+----------------
+This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com
+
+The GeoLite2 database is used under MaxMind's end user license agreement. The database is
+downloaded by the application with the user's own MaxMind license key, refreshed at least every
+30 days, and stored locally. No per-connection lookups are sent to MaxMind or any other service.
+
+Third-party software
+--------------------
+tpt-netguard is built with open-source Rust crates (see Cargo.lock) and the Tauri framework.
+Their licenses are included with each crate's source and are summarised in the release notes.
