@@ -19,6 +19,49 @@ pub const DEFAULT_UPSTREAMS: &[&str] = &[
     "https://dns.quad9.net/dns-query",
 ];
 
+/// Shortest sampling interval accepted. Below this the sampler would spend most of its time
+/// enumerating sockets.
+pub const MIN_SAMPLING_MS: u64 = 100;
+/// Longest sampling interval accepted (one hour); the unfocused cap is built from the base.
+pub const MAX_SAMPLING_MS: u64 = 3_600_000;
+/// Longest GeoLite2 database path accepted from the UI.
+pub const MAX_GEO_PATH_LEN: usize = 1024;
+
+/// The GeoLite2 database path is written to by the updater and read by the map, and it can be
+/// set from the UI. It must therefore be an absolute path to a `.mmdb` file, with no `..`
+/// components and no control characters, so a setting can only name the database itself.
+pub fn validate_geo_db_path(path: &Path) -> Result<()> {
+    let text = path.to_string_lossy();
+    if text.len() > MAX_GEO_PATH_LEN || text.chars().any(char::is_control) {
+        return Err(Error::InvalidInput(
+            "GeoLite2 database path is too long or malformed".into(),
+        ));
+    }
+    if !path.is_absolute() {
+        return Err(Error::InvalidInput(
+            "GeoLite2 database path must be absolute".into(),
+        ));
+    }
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(Error::InvalidInput(
+            "GeoLite2 database path must not contain '..'".into(),
+        ));
+    }
+    let is_mmdb = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("mmdb"));
+    if !is_mmdb {
+        return Err(Error::InvalidInput(
+            "GeoLite2 database path must end in .mmdb".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -94,10 +137,16 @@ impl Settings {
                 return Err(Error::InvalidInput("malformed GeoLite2 license key".into()));
             }
         }
-        if self.sampling_base_ms == 0 || self.sampling_max_ms < self.sampling_base_ms {
-            return Err(Error::InvalidInput(
-                "invalid sampling interval bounds".into(),
-            ));
+        if !(MIN_SAMPLING_MS..=MAX_SAMPLING_MS).contains(&self.sampling_base_ms)
+            || self.sampling_max_ms < self.sampling_base_ms
+            || self.sampling_max_ms > MAX_SAMPLING_MS
+        {
+            return Err(Error::InvalidInput(format!(
+                "sampling interval must be {MIN_SAMPLING_MS}-{MAX_SAMPLING_MS} ms, with the maximum at least the base"
+            )));
+        }
+        if let Some(path) = &self.geo_db_path {
+            validate_geo_db_path(path)?;
         }
         Ok(())
     }
@@ -272,6 +321,64 @@ mod update_tests {
         assert_eq!(next.geo_license_key.as_deref(), Some("STOREDKEY12345678"));
         assert!(next.panic_enabled);
         assert_eq!(next.retention_days, 45);
+    }
+
+    #[test]
+    fn geo_database_path_must_be_an_absolute_mmdb_file() {
+        // An absolute path on this platform: "/x/y" on Unix, "C:\x\y" on Windows.
+        let abs = |rest: &str| -> String {
+            if cfg!(windows) {
+                format!("C:\\{}", rest.replace('/', "\\"))
+            } else {
+                format!("/{rest}")
+            }
+        };
+        let ok = |p: &str| validate_geo_db_path(Path::new(p)).is_ok();
+        assert!(ok(&abs("var/lib/tpt/GeoLite2-City.mmdb")));
+        assert!(
+            ok(&abs("var/lib/tpt/GeoLite2-City.MMDB")),
+            "extension is case-insensitive"
+        );
+        assert!(!ok("GeoLite2-City.mmdb"), "relative paths are refused");
+        assert!(
+            !ok(&abs("var/lib/../../etc/passwd.mmdb")),
+            "parent components are refused"
+        );
+        assert!(!ok(&abs("etc/passwd")), "only .mmdb files");
+        assert!(
+            !ok(&abs("tmp/evil\nname.mmdb")),
+            "control characters are refused"
+        );
+        let long = abs(&format!("{}.mmdb", "a".repeat(MAX_GEO_PATH_LEN)));
+        assert!(!ok(&long));
+    }
+
+    #[test]
+    fn settings_validation_rejects_bad_paths_and_sampling_bounds() {
+        let root = if cfg!(windows) { "C:\\" } else { "/" };
+        let bad_path = Settings {
+            geo_db_path: Some(PathBuf::from(format!("{root}etc/shadow"))),
+            ..Settings::default()
+        };
+        assert!(bad_path.validate().is_err());
+
+        let too_fast = Settings {
+            sampling_base_ms: MIN_SAMPLING_MS - 1,
+            ..Settings::default()
+        };
+        assert!(too_fast.validate().is_err());
+
+        let too_slow = Settings {
+            sampling_max_ms: MAX_SAMPLING_MS + 1,
+            ..Settings::default()
+        };
+        assert!(too_slow.validate().is_err());
+
+        let ok = Settings {
+            geo_db_path: Some(PathBuf::from(format!("{root}data/GeoLite2-City.mmdb"))),
+            ..Settings::default()
+        };
+        assert!(ok.validate().is_ok());
     }
 
     #[test]

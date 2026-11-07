@@ -12,6 +12,9 @@
 use crate::error::{Error, Result};
 use crate::traits::{AppRule, RuleAction};
 
+/// Longest app key accepted in a rule. Paths on Linux and Windows are well under this.
+pub const MAX_APP_KEY_LEN: usize = 4096;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockReason {
     PanicButton,
@@ -39,6 +42,11 @@ pub fn validate_rule(rule: &AppRule) -> Result<()> {
         return Err(Error::InvalidInput(
             "rule app key must not contain control characters".into(),
         ));
+    }
+    if rule.app.len() > MAX_APP_KEY_LEN {
+        return Err(Error::InvalidInput(format!(
+            "rule app key must be at most {MAX_APP_KEY_LEN} bytes"
+        )));
     }
     if matches!(&rule.profile, Some(p) if p.trim().is_empty()) {
         return Err(Error::InvalidInput(
@@ -94,6 +102,13 @@ fn block_rank(action: RuleAction) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlong_app_keys_are_refused() {
+        let long = "/".to_string() + &"a".repeat(MAX_APP_KEY_LEN);
+        assert!(validate_rule(&rule(1, &long, RuleAction::Block, None)).is_err());
+        assert!(validate_rule(&rule(1, "/usr/bin/curl", RuleAction::Block, None)).is_ok());
+    }
 
     fn rule(id: i64, app: &str, action: RuleAction, profile: Option<&str>) -> AppRule {
         AppRule {
