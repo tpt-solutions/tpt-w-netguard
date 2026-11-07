@@ -115,12 +115,32 @@ pub fn update_database(
     let archive = fetcher.fetch(&url)?;
     let mmdb = extract_mmdb(&archive)?;
     validate(&mmdb)?;
+    install(dest, &mmdb)
+}
 
+/// Download a bare `.mmdb` file (no archive, no key) and install it the same way as
+/// [`update_database`]. Used for IPLocate's free ASN database.
+pub fn update_raw_database(
+    fetcher: &dyn Fetcher,
+    url: &str,
+    dest: &Path,
+    validate: impl Fn(&[u8]) -> Result<(), String>,
+) -> Result<Updated, String> {
+    let mmdb = fetcher.fetch(url)?;
+    if mmdb.len() as u64 > MAX_DOWNLOAD_BYTES {
+        return Err("downloaded database is too large".into());
+    }
+    validate(&mmdb)?;
+    install(dest, &mmdb)
+}
+
+/// Write to a temporary file and rename it over `dest`, so readers never see a partial file.
+fn install(dest: &Path, mmdb: &[u8]) -> Result<Updated, String> {
     if let Some(dir) = dest.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot create directory: {e}"))?;
     }
     let tmp = dest.with_extension("mmdb.tmp");
-    std::fs::write(&tmp, &mmdb).map_err(|e| format!("cannot write database: {e}"))?;
+    std::fs::write(&tmp, mmdb).map_err(|e| format!("cannot write database: {e}"))?;
     std::fs::rename(&tmp, dest).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("cannot install database: {e}")
@@ -129,6 +149,24 @@ pub fn update_database(
         path: dest.to_path_buf(),
         bytes: mmdb.len() as u64,
     })
+}
+
+/// Validator for IPLocate's ASN file: it must open and name the IPLocate ASN edition.
+pub fn validate_iplocate_asn(bytes: &[u8]) -> Result<(), String> {
+    let reader = maxminddb::Reader::from_source(bytes.to_vec())
+        .map_err(|_| "downloaded file is not a valid MaxMind-format database".to_string())?;
+    if reader
+        .metadata()
+        .database_type
+        .starts_with(crate::IPLOCATE_ASN_TYPE)
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "downloaded database is {}, expected IPLocate ASN",
+            reader.metadata().database_type
+        ))
+    }
 }
 
 /// Validator for production use: the database must open and name the expected edition.

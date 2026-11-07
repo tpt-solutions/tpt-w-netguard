@@ -18,9 +18,14 @@ feature in this document is not yet implemented, it says so.
 
 ## Geo-IP is offline
 
-The connection map uses a local copy of the MaxMind GeoLite2-City database. Connection addresses
-are looked up on your machine. **No per-connection lookup is sent to any third party.** Without a
-database, the Map tab is disabled and nothing else changes.
+Connection addresses are looked up on your machine, in local copies of two databases. **No
+per-connection lookup is sent to any third party.**
+
+- **Network owner (ASN)**: IPLocate's free IP-to-ASN database (CC BY-SA 4.0). The app downloads
+  the whole file, about 80 MB, from GitHub's media host when it is missing or older than a week.
+  That is the only network request this feature makes, and it carries no connection data.
+- **Map locations (GeoLite2-City)**: optional. Supply your own MaxMind key or a `.mmdb` file in
+  Settings. Without it, the Map tab is disabled and nothing else changes.
 
 ## Encrypted DNS is only for the app
 

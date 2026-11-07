@@ -81,6 +81,12 @@ button:focus-visible {
   outline: none;
 }
 
+.credit {
+  padding: 8px 16px;
+  font-size: 0.8rem;
+  color: var(--muted, inherit);
+}
+
 .app-header {
   display: flex;
   flex-wrap: wrap;

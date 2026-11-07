@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use maxminddb::{geoip2, Reader};
+use serde::Deserialize;
 
 pub mod update;
 
@@ -54,20 +55,35 @@ impl Fetcher for HttpFetcher {
     }
 }
 
-/// Autonomous system (ASN and organisation) for an address, from GeoLite2-ASN.
+/// Autonomous system (ASN and organisation) for an address.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsnInfo {
     pub number: u32,
     pub organization: Option<String>,
 }
 
-/// File name of the ASN edition, expected in the same folder as the City database.
-pub const ASN_FILE_NAME: &str = "GeoLite2-ASN.mmdb";
+/// IPLocate's free IP-to-ASN database, published through Git LFS (the media host serves the
+/// real file). Licensed CC BY-SA 4.0: the app must credit IPLocate.io. No key is needed.
+pub const IPLOCATE_ASN_URL: &str =
+    "https://media.githubusercontent.com/media/iplocate/ip-address-databases/main/ip-to-asn/ip-to-asn.mmdb";
 
-/// Where the ASN database lives, given the City database path: the same folder.
-pub fn asn_path_beside(city_path: &Path) -> Option<PathBuf> {
-    Some(city_path.parent()?.join(ASN_FILE_NAME))
+/// File name of the ASN database in the app data folder.
+pub const ASN_FILE_NAME: &str = "ip-to-asn.mmdb";
+
+/// Where the ASN database lives: the app data folder, whatever the City database path is.
+pub fn asn_path_in(data_dir: &Path) -> PathBuf {
+    data_dir.join(ASN_FILE_NAME)
 }
+
+/// Record layout of IPLocate's ASN database (`asn` is a decimal string).
+#[derive(Deserialize)]
+struct IplocateAsn {
+    asn: Option<String>,
+    org: Option<String>,
+}
+
+/// The `database_type` IPLocate writes into its ASN files, e.g. `iplocate ip-to-asn-20261106`.
+pub const IPLOCATE_ASN_TYPE: &str = "iplocate ip-to-asn";
 
 /// A short owner label for an address, such as `AS15169 Google LLC` (or `AS15169` when the
 /// organisation is not named in the database).
@@ -80,6 +96,8 @@ pub fn owner_label(info: &AsnInfo) -> String {
 
 pub struct AsnDb {
     reader: Reader<Vec<u8>>,
+    /// True for IPLocate files, false for MaxMind GeoLite2-ASN. Chooses the record layout.
+    iplocate: bool,
 }
 
 impl AsnDb {
@@ -87,11 +105,20 @@ impl AsnDb {
         let bytes =
             std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         let reader =
-            Reader::from_source(bytes).map_err(|e| format!("invalid MaxMind database: {e}"))?;
-        Ok(Self { reader })
+            Reader::from_source(bytes).map_err(|e| format!("invalid ASN database: {e}"))?;
+        let iplocate = reader.metadata().database_type.starts_with(IPLOCATE_ASN_TYPE);
+        Ok(Self { reader, iplocate })
     }
 
     pub fn lookup(&self, ip: IpAddr) -> Option<AsnInfo> {
+        if self.iplocate {
+            let record: IplocateAsn = self.reader.lookup(ip).ok()?.decode().ok()??;
+            let number = record.asn?.trim().parse().ok()?;
+            return Some(AsnInfo {
+                number,
+                organization: record.org.filter(|o| !o.is_empty()),
+            });
+        }
         let asn: geoip2::Asn = self.reader.lookup(ip).ok()?.decode().ok()??;
         Some(AsnInfo {
             number: asn.autonomous_system_number?,
@@ -349,13 +376,24 @@ mod asn_tests {
     use std::path::Path;
 
     #[test]
-    fn asn_database_is_expected_beside_the_city_database() {
-        let city = Path::new("/data/geo/GeoLite2-City.mmdb");
+    fn asn_database_lives_in_the_data_folder() {
         assert_eq!(
-            asn_path_beside(city),
-            Some(PathBuf::from("/data/geo/GeoLite2-ASN.mmdb"))
+            asn_path_in(Path::new("/data/tpt")),
+            PathBuf::from("/data/tpt/ip-to-asn.mmdb")
         );
-        assert_eq!(asn_path_beside(Path::new("")), None);
+    }
+
+    /// Runs against a real IPLocate file. Ignored by default because the file is 80 MB; point
+    /// `TPT_IPLOCATE_ASN` at a downloaded `ip-to-asn.mmdb` and run with `--ignored`.
+    #[test]
+    #[ignore]
+    fn reads_iplocate_records() {
+        let path = std::env::var("TPT_IPLOCATE_ASN").expect("set TPT_IPLOCATE_ASN");
+        let db = AsnDb::load(Path::new(&path)).unwrap();
+        let google: IpAddr = "8.8.8.8".parse().unwrap();
+        let info = db.lookup(google).expect("8.8.8.8 is in the database");
+        assert_eq!(info.number, 15169);
+        assert_eq!(info.organization.as_deref(), Some("Google LLC"));
     }
 
     #[test]

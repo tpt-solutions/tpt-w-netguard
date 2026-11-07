@@ -25,8 +25,8 @@ use tpt_netguard_core::settings::Settings;
 use tpt_netguard_core::store::{RetentionPolicy, Store};
 use tpt_netguard_core::traits::TrafficMonitor;
 use tpt_netguard_discovery::{LanScanner, NetworkNameResolver};
-use tpt_netguard_geoip::asn_path_beside;
-use tpt_netguard_geoip::update::{self, EDITION_ASN, EDITION_CITY};
+use tpt_netguard_geoip::update::{self, validate_iplocate_asn, EDITION_CITY};
+use tpt_netguard_geoip::{asn_path_in, IPLOCATE_ASN_URL};
 use tpt_netguard_geoip::HttpFetcher;
 
 /// How often the LAN is scanned.
@@ -130,29 +130,39 @@ pub fn log_error(dir: &Path, message: &str) {
     let _ = log.record(Level::Error, message);
 }
 
-/// Refresh the GeoLite2-City database when it is due. Failures keep the last good copy.
-/// Refresh the GeoLite2 City and ASN databases when each is due. The ASN file lives beside the
-/// City file. Failures keep the last good copy of that edition.
+/// Refresh the databases that are due. The ASN database (IPLocate) needs no key and is always
+/// kept current. The GeoLite2-City database is optional: it is downloaded only when a MaxMind
+/// key and a file path are set. Failures keep the last good copy.
 fn refresh_geo(dir: &Path) {
+    refresh_asn(dir);
     let settings = Settings::load(&dir.join("settings.json")).unwrap_or_default();
-    let (Some(key), Some(path)) = (
+    if let (Some(key), Some(path)) = (
         settings.geo_license_key.clone(),
         settings.geo_db_path.clone(),
-    ) else {
-        return;
-    };
-    refresh_edition(dir, &key, &path, EDITION_CITY);
-    if let Some(asn) = asn_path_beside(&path) {
-        refresh_edition(dir, &key, &asn, EDITION_ASN);
+    ) {
+        refresh_city(dir, &key, &path);
     }
 }
 
-fn refresh_edition(dir: &Path, key: &str, path: &Path, edition: &'static str) {
+fn refresh_asn(dir: &Path) {
+    let dest = asn_path_in(dir);
+    if !update::is_due(update::file_age(&dest, SystemTime::now())) {
+        return;
+    }
+    let fetcher = HttpFetcher::new(Duration::from_secs(300));
+    match update::update_raw_database(&fetcher, IPLOCATE_ASN_URL, &dest, validate_iplocate_asn) {
+        Ok(done) => log_error(dir, &format!("ASN database refreshed ({} bytes)", done.bytes)),
+        Err(e) => log_error(dir, &format!("ASN database refresh failed: {e}")),
+    }
+}
+
+fn refresh_city(dir: &Path, key: &str, path: &Path) {
     let age = update::file_age(path, SystemTime::now());
     if !update::is_due(age) {
         return;
     }
     let fetcher = HttpFetcher::new(Duration::from_secs(120));
+    let edition = EDITION_CITY;
     match update::update_database(&fetcher, edition, key, path, update::validator_for(edition)) {
         Ok(done) => log_error(dir, &format!("{edition} refreshed ({} bytes)", done.bytes)),
         Err(e) => log_error(dir, &format!("{edition} refresh failed: {e}")),

@@ -33,7 +33,7 @@ use tpt_netguard_core::store::Store;
 use tpt_netguard_core::traits::{FirewallBackend, RulePersistence};
 
 use tpt_netguard_geoip::{
-    aggregate_map, asn_path_beside, owner_label, AsnDb, GeoIp, MapCell, MapPoint,
+    aggregate_map, asn_path_in, owner_label, AsnDb, GeoIp, MapCell, MapPoint,
 };
 
 use fallback::Unenforced;
@@ -56,6 +56,8 @@ pub struct AppState {
     pub service: Mutex<Service<Box<dyn FirewallBackend>>>,
     pub enforcement: Mutex<EnforcementView>,
     pub published: Published,
+    /// App data folder: where the ASN database is kept.
+    data_dir: PathBuf,
     geo: Mutex<Option<(PathBuf, GeoIp)>>,
     asn: Mutex<Option<AsnCache>>,
 }
@@ -207,6 +209,7 @@ fn build_state(dir: &Path) -> std::result::Result<AppState, String> {
         service: Mutex::new(service),
         enforcement: Mutex::new(enforcement),
         published,
+        data_dir: dir.to_path_buf(),
         geo: Mutex::new(None),
         asn: Mutex::new(None),
     })
@@ -282,14 +285,8 @@ fn owner_labels(
     state: &AppState,
     ips: &[std::net::IpAddr],
 ) -> std::result::Result<Vec<Option<String>>, String> {
-    let city_path = {
-        let svc = state.service.lock().map_err(lock_err)?;
-        svc.settings().geo_db_path.clone()
-    };
     let none = || vec![None; ips.len()];
-    let Some(asn_path) = city_path.as_deref().and_then(asn_path_beside) else {
-        return Ok(none());
-    };
+    let asn_path = asn_path_in(&state.data_dir);
     let modified = std::fs::metadata(&asn_path).and_then(|m| m.modified()).ok();
     let mut slot = state.asn.lock().map_err(lock_err)?;
     let stale = match &*slot {
@@ -322,7 +319,9 @@ fn map_points(state: State<'_, AppState>) -> std::result::Result<MapView, String
     let Some(path) = geo_path else {
         return Ok(MapView {
             available: false,
-            reason: Some("no GeoLite2 database configured (Settings)".into()),
+            reason: Some(
+                "map is off: add a MaxMind license key or a GeoLite2-City file in Settings".into(),
+            ),
             cells: Vec::new(),
         });
     };

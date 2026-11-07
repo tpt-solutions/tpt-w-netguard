@@ -88,12 +88,14 @@ export function graphView(): View {
   const appChart = el("div", { class: "chart", role: "img", "aria-label": "Bytes per program over the last few minutes" });
   const appLegend = el("ul", { class: "legend" });
   const connBody = el("div", {});
+  const connHeading = el("h2", {}, "Connections");
+  const connCard = el("section", { class: "card", "aria-label": "Connections" }, connHeading, connBody);
   const root = el(
     "div",
     { class: "view" },
     section("Live bandwidth", status, now, chartBox),
     section("Busiest programs (last few minutes)", appChart, appLegend),
-    section("Connections (largest first)", connBody),
+    connCard,
   );
   let lastChart = "";
   let lastAppChart = "";
@@ -144,10 +146,22 @@ export function graphView(): View {
           }),
         );
       }
-      const top = [...ctx.connections]
-        .sort((a, b) => b.bytes_sent + b.bytes_received - (a.bytes_sent + a.bytes_received))
-        .slice(0, 20);
-      renderIfChanged(connBody, sig(top), () => [
+      // Byte counts (and so the "largest first" order) exist only when the OS counters are
+      // readable. Without them every count is zero, so sort by program instead and say so.
+      const haveBytes = ctx.enforcement?.bandwidth.startsWith("available") ?? false;
+      connHeading.textContent = haveBytes ? "Connections (largest first)" : "Connections";
+      const top = haveBytes
+        ? [...ctx.connections]
+            .sort((a, b) => b.bytes_sent + b.bytes_received - (a.bytes_sent + a.bytes_received))
+            .slice(0, 20)
+        : [...ctx.connections]
+            .sort((a, b) => a.process_name.localeCompare(b.process_name))
+            .slice(0, 20);
+      const bytesCell = (n: number): string => (haveBytes ? formatBytes(n) : "—");
+      renderIfChanged(connBody, sig([haveBytes, top]), () => [
+        !haveBytes && ctx.connections.length > 0
+          ? el("p", { class: "hint" }, "Byte counts are not available, so connections are listed by program. See the status line above for the reason.")
+          : null,
         top.length === 0
           ? el("p", { class: "empty" }, "No connections reported yet.")
           : table(
@@ -157,8 +171,8 @@ export function graphView(): View {
                 remoteLabel(c.remote, c.remote_name),
                 c.remote_org ?? "—",
                 `${c.protocol.toUpperCase()} ${c.state}`,
-                formatBytes(c.bytes_sent),
-                formatBytes(c.bytes_received),
+                bytesCell(c.bytes_sent),
+                bytesCell(c.bytes_received),
               ]),
             ),
       ]);
@@ -471,7 +485,7 @@ function renderMap(container: HTMLElement, map: MapView): void {
   if (!map.available) {
     container.replaceChildren(
       el("p", { class: "empty" }, map.reason ?? "The map is unavailable."),
-      el("p", { class: "hint" }, "Add a GeoLite2 database path in Settings. Lookups happen on this computer only."),
+      el("p", { class: "hint" }, "The map needs a GeoLite2-City database: add a MaxMind license key or a file path in Settings. Lookups happen on this computer only."),
     );
     return;
   }
@@ -622,7 +636,7 @@ export function settingsView(): View {
     field("MaxMind license key", geoKey),
     keyNote,
     el("div", { class: "field" }, el("label", {}, el("span", {}, clearKey, " Remove the stored key")), el("p", { class: "hint" }, "Ticking this removes the key on save; the map then stays off.")),
-    field("GeoLite2 database file", geoPath, "Downloaded and refreshed by the app; leave blank to keep the map off."),
+    field("GeoLite2-City database file", geoPath, "Optional. Path to your own GeoLite2-City .mmdb, or the file a MaxMind key downloads. Blank keeps the map off."),
     field("Usage alert threshold (MB per sampling window)", spike),
     field("Keep a local error log", crash, "Stored only on this computer, never sent anywhere. Off by default."),
     el("div", { class: "actions" }, el("button", { type: "submit", class: "primary" }, "Save settings")),
