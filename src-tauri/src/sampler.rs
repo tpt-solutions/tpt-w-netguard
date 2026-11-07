@@ -26,8 +26,8 @@ use tpt_netguard_core::store::{RetentionPolicy, Store};
 use tpt_netguard_core::traits::TrafficMonitor;
 use tpt_netguard_discovery::{LanScanner, NetworkNameResolver};
 use tpt_netguard_geoip::update::{self, validate_iplocate_asn, EDITION_CITY};
-use tpt_netguard_geoip::{asn_path_in, IPLOCATE_ASN_URL};
 use tpt_netguard_geoip::HttpFetcher;
+use tpt_netguard_geoip::{asn_path_in, IPLOCATE_ASN_URL};
 
 /// How often the LAN is scanned.
 const LAN_SCAN_EVERY: Duration = Duration::from_secs(10 * 60);
@@ -151,7 +151,10 @@ fn refresh_asn(dir: &Path) {
     }
     let fetcher = HttpFetcher::new(Duration::from_secs(300));
     match update::update_raw_database(&fetcher, IPLOCATE_ASN_URL, &dest, validate_iplocate_asn) {
-        Ok(done) => log_error(dir, &format!("ASN database refreshed ({} bytes)", done.bytes)),
+        Ok(done) => log_error(
+            dir,
+            &format!("ASN database refreshed ({} bytes)", done.bytes),
+        ),
         Err(e) => log_error(dir, &format!("ASN database refresh failed: {e}")),
     }
 }

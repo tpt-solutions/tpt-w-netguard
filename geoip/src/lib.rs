@@ -106,7 +106,10 @@ impl AsnDb {
             std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         let reader =
             Reader::from_source(bytes).map_err(|e| format!("invalid ASN database: {e}"))?;
-        let iplocate = reader.metadata().database_type.starts_with(IPLOCATE_ASN_TYPE);
+        let iplocate = reader
+            .metadata()
+            .database_type
+            .starts_with(IPLOCATE_ASN_TYPE);
         Ok(Self { reader, iplocate })
     }
 
