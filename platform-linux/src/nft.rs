@@ -105,6 +105,13 @@ mod tests {
     }
 
     #[test]
+    fn package_pre_removal_hook_deletes_the_same_table() {
+        // The .deb hook cannot call this crate, so it names the table itself. Keep them in step.
+        let hook = include_str!("../../packaging/linux/prerm.sh");
+        assert!(hook.contains(&format!("delete table inet {TABLE}")));
+    }
+
+    #[test]
     fn remove_is_idempotent_script() {
         let script = remove();
         // "add" before "delete" so the delete never fails on a missing table.
