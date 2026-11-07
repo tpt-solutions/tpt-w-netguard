@@ -12,15 +12,18 @@
 //!   and tracepoint programs (see `ebpf/` and `docs/linux-ebpf.md`). The panic button stays on
 //!   nftables, which overrides per-app rules.
 //!
+//! * [`sockdiag`]: per-socket TCP byte counters from the kernel's `sock_diag` interface, used by
+//!   [`LinuxMonitor`] for per-app bandwidth. TCP only, like the Windows backend.
+//!
 //! What is still not implemented:
-//! * Per-connection byte counters. `/proc` has no byte totals; they still need packet capture
-//!   or an eBPF accounting program.
+//! * UDP byte counters (the kernel exposes none per socket; they would need capture or eBPF).
 
 pub mod app_rules;
 pub mod caps;
 pub mod ebpf_abi;
 pub mod nft;
 pub mod proc_net;
+pub mod sockdiag;
 
 #[cfg(target_os = "linux")]
 pub mod ebpf;

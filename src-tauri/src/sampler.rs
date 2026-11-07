@@ -114,10 +114,7 @@ impl Monitor {
                 }
             },
             #[cfg(target_os = "linux")]
-            Monitor::Linux(_) => {
-                "unavailable: Linux per-connection byte counters are not implemented yet"
-                    .to_string()
-            }
+            Monitor::Linux(m) => m.bandwidth_status(),
         }
     }
 }
