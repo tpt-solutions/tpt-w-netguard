@@ -172,6 +172,8 @@ impl GeoIp {
 pub struct MapPoint {
     pub remote: IpAddr,
     pub bytes: u64,
+    /// Network owner label from GeoLite2-ASN (see [`owner_label`]), when known.
+    pub owner: Option<String>,
 }
 
 /// Connections grouped by location, for the Map tab.
@@ -183,6 +185,8 @@ pub struct MapCell {
     pub longitude: f64,
     pub connections: usize,
     pub bytes: u64,
+    /// The owner seen most often in this cell (ties go to the label sorting first).
+    pub owner: Option<String>,
 }
 
 /// Group points by (country, city). Points without a location are dropped: they cannot be
@@ -191,7 +195,8 @@ pub fn aggregate_map<F>(points: &[MapPoint], lookup: F) -> Vec<MapCell>
 where
     F: Fn(IpAddr) -> Option<GeoLocation>,
 {
-    let mut cells: BTreeMap<(Option<String>, Option<String>), MapCell> = BTreeMap::new();
+    type Key = (Option<String>, Option<String>);
+    let mut cells: BTreeMap<Key, (MapCell, BTreeMap<String, usize>)> = BTreeMap::new();
     for point in points {
         let Some(loc) = lookup(point.remote) else {
             continue;
@@ -199,20 +204,39 @@ where
         let (Some(latitude), Some(longitude)) = (loc.latitude, loc.longitude) else {
             continue;
         };
-        let cell = cells
+        let (cell, owners) = cells
             .entry((loc.country.clone(), loc.city.clone()))
-            .or_insert_with(|| MapCell {
-                country: loc.country.clone(),
-                city: loc.city.clone(),
-                latitude,
-                longitude,
-                connections: 0,
-                bytes: 0,
+            .or_insert_with(|| {
+                (
+                    MapCell {
+                        country: loc.country.clone(),
+                        city: loc.city.clone(),
+                        latitude,
+                        longitude,
+                        connections: 0,
+                        bytes: 0,
+                        owner: None,
+                    },
+                    BTreeMap::new(),
+                )
             });
         cell.connections += 1;
         cell.bytes = cell.bytes.saturating_add(point.bytes);
+        if let Some(owner) = &point.owner {
+            *owners.entry(owner.clone()).or_insert(0) += 1;
+        }
     }
-    cells.into_values().collect()
+    cells
+        .into_values()
+        .map(|(mut cell, owners)| {
+            // Most frequent owner; on a tie the label that sorts first wins.
+            cell.owner = owners
+                .into_iter()
+                .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+                .map(|(label, _)| label);
+            cell
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -266,29 +290,22 @@ mod tests {
         }
     }
 
+    fn point(remote: &str, bytes: u64, owner: Option<&str>) -> MapPoint {
+        MapPoint {
+            remote: remote.parse().unwrap(),
+            bytes,
+            owner: owner.map(String::from),
+        }
+    }
+
     #[test]
     fn aggregates_points_by_location() {
         let points = [
-            MapPoint {
-                remote: "1.1.1.1".parse().unwrap(),
-                bytes: 100,
-            },
-            MapPoint {
-                remote: "1.0.0.1".parse().unwrap(),
-                bytes: 50,
-            },
-            MapPoint {
-                remote: "8.8.8.8".parse().unwrap(),
-                bytes: 10,
-            },
-            MapPoint {
-                remote: "10.0.0.5".parse().unwrap(),
-                bytes: 999,
-            },
-            MapPoint {
-                remote: "203.0.113.9".parse().unwrap(),
-                bytes: 999,
-            },
+            point("1.1.1.1", 100, None),
+            point("1.0.0.1", 50, None),
+            point("8.8.8.8", 10, None),
+            point("10.0.0.5", 999, None),
+            point("203.0.113.9", 999, None),
         ];
         let cells = aggregate_map(&points, fake_lookup);
         assert_eq!(cells.len(), 2);
@@ -298,6 +315,31 @@ mod tests {
             .unwrap();
         assert_eq!(sydney.connections, 2);
         assert_eq!(sydney.bytes, 150);
+        assert_eq!(sydney.owner, None);
+    }
+
+    #[test]
+    fn cell_owner_is_the_most_frequent_one_with_a_stable_tie_break() {
+        let points = [
+            point("1.1.1.1", 1, Some("AS13335 Cloudflare")),
+            point("1.0.0.1", 1, Some("AS13335 Cloudflare")),
+            point("8.8.8.8", 1, Some("AS15169 Google")),
+            point("1.0.0.1", 1, None),
+        ];
+        let cells = aggregate_map(&points, fake_lookup);
+        let sydney = cells
+            .iter()
+            .find(|c| c.country.as_deref() == Some("AU"))
+            .unwrap();
+        assert_eq!(sydney.owner.as_deref(), Some("AS13335 Cloudflare"));
+
+        // A tie goes to the label that sorts first, regardless of input order.
+        let tied = [
+            point("1.1.1.1", 1, Some("AS2 B")),
+            point("1.1.1.1", 1, Some("AS1 A")),
+        ];
+        let cells = aggregate_map(&tied, fake_lookup);
+        assert_eq!(cells[0].owner.as_deref(), Some("AS1 A"));
     }
 }
 

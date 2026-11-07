@@ -75,6 +75,7 @@ pub struct MapCellView {
     pub longitude: f64,
     pub connections: usize,
     pub bytes: u64,
+    pub owner: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -346,12 +347,19 @@ fn map_points(state: State<'_, AppState>) -> std::result::Result<MapView, String
         .lock()
         .map_err(lock_err)?
         .clone();
-    let points: Vec<MapPoint> = conns
+    let routable: Vec<&tpt_netguard_core::model::Connection> = conns
         .iter()
         .filter(|c| is_routable(c.remote.ip()))
-        .map(|c| MapPoint {
+        .collect();
+    let ips: Vec<std::net::IpAddr> = routable.iter().map(|c| c.remote.ip()).collect();
+    let owners = owner_labels(&state, &ips)?;
+    let points: Vec<MapPoint> = routable
+        .iter()
+        .zip(owners)
+        .map(|(c, owner)| MapPoint {
             remote: c.remote.ip(),
             bytes: c.bytes_sent.saturating_add(c.bytes_received),
+            owner,
         })
         .collect();
     let cells: Vec<MapCell> = aggregate_map(&points, |ip| geo.lookup(ip));
@@ -367,6 +375,7 @@ fn map_points(state: State<'_, AppState>) -> std::result::Result<MapView, String
                 longitude: c.longitude,
                 connections: c.connections,
                 bytes: c.bytes,
+                owner: c.owner,
             })
             .collect(),
     })

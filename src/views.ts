@@ -11,6 +11,7 @@ import {
   type Device,
   type EnforcementView,
   type Granularity,
+  type MapCell,
   type MapView,
   type Snapshot,
   type SettingsUpdate,
@@ -481,7 +482,7 @@ function renderMap(container: HTMLElement, map: MapView): void {
       cy: y.toFixed(1),
       r: cellRadius(c.bytes).toFixed(1),
       class: "dot",
-    }, svg("title", {}, `${[c.city, c.country].filter(Boolean).join(", ") || "Unknown"}: ${c.connections} connections, ${formatBytes(c.bytes)}`));
+    }, svg("title", {}, `${mapLabel(c)}: ${c.connections} connections, ${formatBytes(c.bytes)}${c.owner ? `, ${c.owner}` : ""}`));
   });
   container.replaceChildren(
     svg("svg", { viewBox: `0 0 ${MAP_W} ${MAP_H}`, class: "map", role: "img", "aria-label": "Remote connections by location" },
@@ -490,14 +491,19 @@ function renderMap(container: HTMLElement, map: MapView): void {
     map.cells.length === 0
       ? el("p", { class: "empty" }, "No remote connections with a known location right now.")
       : table(
-          ["Location", "Connections", "Traffic"],
+          ["Location", "Owner", "Connections", "Traffic"],
           map.cells.map((c) => [
-            [c.city, c.country].filter(Boolean).join(", ") || "Unknown",
+            mapLabel(c),
+            c.owner ?? "Unknown",
             String(c.connections),
             formatBytes(c.bytes),
           ]),
         ),
   );
+}
+
+function mapLabel(c: MapCell): string {
+  return [c.city, c.country].filter(Boolean).join(", ") || "Unknown";
 }
 
 /* ----------------------------------------------------------------- Alerts */

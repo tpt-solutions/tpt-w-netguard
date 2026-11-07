@@ -109,6 +109,8 @@ export interface MapCell {
   longitude: number;
   connections: number;
   bytes: number;
+  /** Most common network owner in this cell, e.g. "AS13335 Cloudflare, Inc."; null if unknown. */
+  owner: string | null;
 }
 
 export interface MapView {
@@ -293,8 +295,8 @@ export class DemoBackend implements Backend {
       available: true,
       reason: null,
       cells: [
-        { country: "US", city: "Mountain View", latitude: 37.4, longitude: -122.1, connections: 12, bytes: 40_000_000 },
-        { country: "AU", city: "Sydney", latitude: -33.9, longitude: 151.2, connections: 3, bytes: 900_000 },
+        { country: "US", city: "Mountain View", latitude: 37.4, longitude: -122.1, connections: 12, bytes: 40_000_000, owner: "AS15169 Google LLC" },
+        { country: "AU", city: "Sydney", latitude: -33.9, longitude: 151.2, connections: 3, bytes: 900_000, owner: null },
       ],
     });
   }
