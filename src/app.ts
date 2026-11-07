@@ -13,6 +13,7 @@ import {
 } from "./api";
 import { el, announce } from "./dom";
 import { appWindow, pushBounded } from "./format";
+import { cycleFocus, FOCUSABLE } from "./focus";
 import { isTabId, nextTabIndex, nextTheme, TABS, type Theme, type TabId } from "./tabs";
 import {
   alertsView,
@@ -195,15 +196,30 @@ export function start(): void {
 
   /* ---- onboarding ---- */
   let onboardingShownThisSession = false;
+  /** Focus to return to when the dialog closes, and siblings made inert while it is open. */
+  let onboardingReturnFocus: HTMLElement | null = null;
+  let onboardingInerted: Element[] = [];
+
+  function closeOnboarding(): void {
+    const dialog = document.getElementById("onboarding");
+    if (!dialog) return;
+    dialog.remove();
+    for (const element of onboardingInerted) element.removeAttribute("inert");
+    onboardingInerted = [];
+    if (onboardingReturnFocus?.isConnected) onboardingReturnFocus.focus();
+    onboardingReturnFocus = null;
+  }
+
   function renderOnboarding(snapshot: Snapshot): void {
     const existing = document.getElementById("onboarding");
     const needed = !snapshot.settings.onboarding_done && !onboardingShownThisSession;
     if (!needed) {
-      existing?.remove();
+      closeOnboarding();
       return;
     }
     if (existing) return;
     onboardingShownThisSession = true;
+    onboardingReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = el("section", {
       id: "onboarding",
       class: "dialog",
@@ -227,12 +243,31 @@ export function start(): void {
               .saveSettings(updateFrom(snapshot, { onboarding_done: true }))
               .catch((err: unknown) => notify(`Could not save: ${String(err)}`, "error"))
               .finally(() => {
-                document.getElementById("onboarding")?.remove();
+                closeOnboarding();
                 void refresh();
               });
           },
         }, "Got it"),
       ));
+    // Escape closes the walkthrough for this session only; it is shown again next launch.
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeOnboarding();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
+      if (controls.length === 0) return;
+      event.preventDefault();
+      const current = controls.indexOf(document.activeElement as HTMLElement);
+      controls[cycleFocus(current, controls.length, event.shiftKey)]?.focus();
+    });
+    // The rest of the page is inert while the dialog is open, so screen readers and Tab skip it.
+    onboardingInerted = Array.from(document.body.children).filter(
+      (child) => child.id !== "onboarding" && !child.hasAttribute("inert"),
+    );
+    for (const element of onboardingInerted) element.setAttribute("inert", "");
     document.body.append(dialog);
     dialog.querySelector("button")?.focus();
   }
