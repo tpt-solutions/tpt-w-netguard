@@ -35,6 +35,16 @@ All notable changes to tpt-netguard are recorded here. The format follows
   root, fork inheritance, exec-event checks with a 5 ms pending window, a kernel-level enforcement
   test, and an MIT-licensed object (no GPL-only helpers). See
   `docs/linux-ebpf.md`.
+- Linux per-app bandwidth: TCP byte counters from the kernel's `sock_diag` interface, attributed
+  to processes the same way connections are. Tested against live loopback traffic in a Linux
+  container. UDP byte counters are not available.
+- Map tab: each location shows the network owner (GeoLite2-ASN) that appears most often there.
+- Accessibility: skip link to the active panel; the first-run walkthrough traps focus, closes
+  with Escape (for this session only), returns focus afterwards, and makes the page behind it inert.
+- Linux package removal deletes the block-all nftables table (`packaging/linux/prerm.sh`).
+- Security review (`docs/security-review.md`) and the fixes it led to.
+- Tests: parser scale test (50,000 sockets), monitor end-to-end attribution test, and the
+  focus-cycle and settings-validation tests.
 - Tray menu: "Recent alerts" submenu with the newest undismissed alerts.
 - Graph tab: busiest-programs chart with a text legend.
 - Connection list shows reverse-DNS names for routable remote addresses, looked up through the
@@ -54,5 +64,5 @@ All notable changes to tpt-netguard are recorded here. The format follows
 ### Not yet implemented
 - ETW per-app bandwidth (deferred to post-v1); ALE classify-callback new-connection events
   (polling is used instead).
-- Per-connection byte counters on Linux.
+- UDP byte counters on Linux (no per-socket kernel counter exists; needs capture or eBPF).
 - Installers built (unsigned by decision); tagged release (publishing is a separate step).

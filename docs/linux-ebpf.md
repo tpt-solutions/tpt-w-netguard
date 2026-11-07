@@ -92,5 +92,7 @@ blocked, that a program already running is blocked, that a control copy still co
 removing the rule restores access, and that relative paths are refused.
 
 Verified on a 6.18 WSL2 kernel, both inside a privileged Debian container and in the Docker
-Desktop WSL distribution. Not yet verified on a bare-metal desktop distribution or on an older
+Desktop WSL distribution. Re-run on 2026-11-07 in a privileged `rust:1.97-trixie` container (LLVM 22
+for `bpf-linker`, `tracefs` mounted at `/sys/kernel/tracing`): both tests pass. The container needs
+`tracefs` mounted, and a `bpf-linker` built against the LLVM version that is installed. Not yet verified on a bare-metal desktop distribution or on an older
 kernel; those are part of the Linux manual QA in `todo.md`.

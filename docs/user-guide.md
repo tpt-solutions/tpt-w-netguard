@@ -50,8 +50,12 @@ For the technical details, see [privacy.md](privacy.md).
 - **"Firewall enforcement unavailable"** on Windows: run the app as administrator.
 - **Per-program byte counts are zero on Windows**: the byte counters need administrator
   rights. Blocking may still work if you have them.
-- **Linux per-program byte counts are not shown**: not implemented yet. Connections and the
-  block-all switch work.
+- **Linux per-program byte counts show "unavailable"**: the kernel refused the socket query. This
+  happens in some restricted containers. The Graph tab's status line says why. Byte counts cover
+  TCP only, on Windows and Linux alike; UDP traffic is not counted.
+- **Internet is blocked after a crash**: block-all stays on across restarts, by design, so a
+  crash cannot silently reopen the network. Switch "Block all internet" off in the header to
+  restore access. Removing the Linux package also deletes the block-all rules.
 - **No devices or map yet**: the first device scan runs a few minutes after start, and the map
   needs a GeoLite2 database.
 

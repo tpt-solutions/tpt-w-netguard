@@ -67,18 +67,18 @@ Decisions approved after the v1 review (these supersede the locked items above w
 | 1  | Core Data Model & Traffic Engine                   | ✅ Complete (core crate) |
 | 2  | Historical Data Store                              | ✅ Complete (core crate) |
 | 3  | Windows Backend                                    | 🟡 IP Helper monitoring and WFP enforcement done; ETW not started |
-| 4  | Linux Backend                                      | 🟡 Attribution, nftables panic button and eBPF per-app enforcement done; byte counters pending |
+| 4  | Linux Backend                                      | 🟡 Attribution, nftables panic button, eBPF per-app enforcement and TCP byte counters (sock_diag) done; UDP byte counters not available |
 | 5  | Firewall Rule Engine & Panic Button                | ✅ Complete on Windows (WFP) and Linux (eBPF per-app, nftables panic button) |
 | 6  | LAN Device Discovery ("Things")                    | 🟡 Scanning, naming and alerts done; OUI vendor data not bundled |
-| 7  | Geo-IP & Connection Map                            | ✅ Complete (City and ASN databases; Owner column on the Graph tab) |
+| 7  | Geo-IP & Connection Map                            | ✅ Complete (City and ASN databases; Owner column on the Graph and Map tabs) |
 | 8  | Encrypted DNS for App Lookups                      | 🟡 Connection-list names via DoH/DoT done; Things labeling still mDNS/NetBIOS only |
 | 9  | Alerts Engine                                      | ✅ Complete (in-app feed; OS notifications for warning and critical) |
 | 10 | Tauri Shell & IPC Layer                            | ✅ Complete (shell, commands, events, tray with recent alerts) |
 | 11 | Frontend (Graph/Usage/Firewall/Things/Map/Alerts)  | ✅ Complete (all seven tabs; per-program graph included) |
 | 12 | Archon Support (Design Only)                       | 🟡 Design draft and feature stubs; open questions need the tpt-archon team |
-| 13 | Performance & Polish                               | 🟡 Onboarding, opt-in log and placeholder icon done; profiling pending |
-| 14 | Testing & QA                                       | 🟡 Unit and wire-contract tests done; integration and manual QA pending |
-| 15 | Release v1                                         | 🟡 Docs, notices and triage done; installers not built; tag and publish excluded |
+| 13 | Performance & Polish                               | 🟡 Adaptive sampling, accessibility pass, onboarding, opt-in log and placeholder icon done; profiling needs a running build |
+| 14 | Testing & QA                                       | 🟡 Unit, wire-contract, scale and kernel-facing tests done; security review written; manual QA pending |
+| 15 | Release v1                                         | 🟡 Docs, notices, triage, security review and Linux uninstall cleanup done; installers not built; tag and publish excluded |
 
 ---
 
@@ -139,7 +139,7 @@ Decisions approved after the v1 review (these supersede the locked items above w
 - [x] Unit/integration tests against a mockable WFP/ETW boundary (CI-safe)  *(plan tests run everywhere; live tests are read-only or ignored)*
 
 ## Phase 4 — Linux Backend
-- [ ] Per-app bandwidth via `/proc/net/{tcp,udp}` + `/proc/[pid]/fd` inode matching  *(attribution done; byte counters need eBPF or capture, not started)*
+- [x] Per-app bandwidth via `/proc/net/{tcp,udp}` + `/proc/[pid]/fd` inode matching  *(TCP byte counters from the kernel's `sock_diag` `tcp_info`, attributed by inode; checked against live loopback traffic in a Linux container. UDP has no per-socket kernel counter, so it stays unavailable: needs capture or eBPF)*
       (nethogs-style), mirroring tpt-monitor's existing technique
 - [x] Firewall enforcement, coarse rules: nftables via netlink (`rustables`/`nftnl` crate) for  *(done through the `nft` CLI instead of netlink; see platform-linux/src/nft.rs)*
       block-all panic button and port/protocol rules
@@ -155,7 +155,7 @@ Decisions approved after the v1 review (these supersede the locked items above w
       hosts
 
 ## Phase 5 — Firewall Rule Engine & Panic Button
-- [ ] Wire `FirewallBackend` trait to Windows/Linux implementations (Phases 3/4)  *(Windows done; Linux enforces the panic button only)*
+- [x] Wire `FirewallBackend` trait to Windows/Linux implementations (Phases 3/4)  *(Windows WFP and Linux nftables + eBPF both implement it; `LinuxFirewall` reports why per-app rules are unavailable when eBPF cannot load)*
 - [x] Per-app rule model: allow/block, optional per-network-profile (home/public) scoping,
       persisted in the rule table (Phase 2)
 - [x] Block-all "panic button" toggle wired to both backends
@@ -164,7 +164,7 @@ Decisions approved after the v1 review (these supersede the locked items above w
 
 ## Phase 6 — LAN Device Discovery ("Things")
 - [x] ARP table scan (active + periodic sweep) to enumerate devices on the local subnet
-- [x] Hostname resolution via mDNS/NetBIOS where available; MAC vendor OUI lookup for device  *(OUI lookup reads an `oui.txt` file; no vendor database is bundled)*
+- [x] Hostname resolution via mDNS/NetBIOS where available; MAC vendor OUI lookup for device  *(OUI lookup reads an `oui.txt` file; no vendor database is bundled. Things labelling stays on mDNS/NetBIOS by decision: LAN addresses never leave the LAN)*
       labeling
 - [x] Device fingerprint/identity model (MAC, vendor, hostname, first-seen/last-seen, "known"
       flag)
@@ -174,7 +174,7 @@ Decisions approved after the v1 review (these supersede the locked items above w
 ## Phase 7 — Geo-IP & Connection Map
 - [x] MaxMind GeoLite2-City database loader (license key config, local storage path)
 - [x] Scheduled update job (respecting MaxMind's redistribution/refresh terms)  *(City and ASN editions, same key and schedule)*
-- [x] IP → location + ASN/org lookup for remote connection endpoints  *(Owner column on the Graph tab; the Map tab still shows location only)*
+- [x] IP → location + ASN/org lookup for remote connection endpoints  *(Owner column on the Graph tab; the Map tab shows each location's most common owner)*
 - [x] Map data model (aggregated connections by location) for the frontend Map tab
 - [x] Graceful degradation when no license key/DB is configured (map tab disabled, rest of app
       unaffected)
@@ -233,32 +233,34 @@ Decisions approved after the v1 review (these supersede the locked items above w
 
 ## Phase 13 — Performance & Polish
 - [ ] Profile the sampling/enforcement loops (CPU/RAM footprint, ETW/eBPF overhead under load)
-- [ ] Adaptive sampling interval tuning (unfocused/minimized window)
+- [x] Adaptive sampling interval tuning (unfocused/minimized window)  *(a focus-loss event slows sampling to 4× the base, capped at the configured maximum; unit-tested in `core/src/scheduler.rs`)*
 - [ ] App icon, branding assets (TPT Solutions)  *(placeholder icon generated; real branding is a design task)*
 - [x] First-run onboarding (explain elevation prompt, GeoLite2 license key setup, panic button)
 - [x] Crash reporting / local error logging (opt-in only)  *(opt-in local log only; no crash handler or upload)*
-- [ ] Accessibility pass (keyboard navigation, screen reader labels across all tabs)
+- [x] Accessibility pass (keyboard navigation, screen reader labels across all tabs)  *(tab strip uses the WAI-ARIA pattern with arrow/Home/End keys; skip link; first-run dialog traps focus, closes with Escape, restores focus and inerts the page behind it; theme button name matches its text; charts carry a text summary of the latest reading. Still needs a manual pass with a screen reader)*
 
 ## Phase 14 — Testing & QA
 - [x] Unit tests: traffic engine, firewall rule engine, alerts engine, geo-IP lookup, DNS
       resolver (mocked per-platform backends)
-- [ ] Integration tests: end-to-end block/allow against a spawned test process and real socket
-      connections
+- [x] Integration tests: end-to-end block/allow against a spawned test process and real socket
+      connections  *(Linux: `platform-linux/tests/enforcement.rs` passes in a privileged container with the eBPF object built, 2026-11-07. Windows: the WFP live test needs an elevated run and is still open)*
 - [ ] Manual QA: Windows 10/11 (elevated + unelevated launch, WFP filter cleanup on exit/crash)
 - [ ] Manual QA: Linux (X11 + Wayland, at least one major distro; cgroup v1 and v2; root and
       non-root launch)
-- [ ] Stress test: connection list + graphs responsiveness under many simultaneous connections
-      (e.g. torrent client, busy browser)
-- [ ] Security review: elevated-process attack surface, IPC command validation, WFP/eBPF filter
-      cleanup guarantees (no orphaned block rules after crash/uninstall), GeoLite2/DoH network
-      calls audited against the stated privacy scope
+- [x] Stress test (parser scale): 50,000 socket rows parse completely and inode attribution stays
+      exact at that size (`platform-linux/tests/parse_scale.rs`). *Open:* the live check of
+      connection list and graph responsiveness under a real torrent client or busy browser is manual.
+- [x] Security review: written up in `docs/security-review.md`. It covers the elevated-process
+      attack surface, IPC validation, WFP and eBPF cleanup, and the GeoLite2/DoH network calls.
+      Fixes made: GeoLite2 path validation, sampling bounds, app-key length cap, and a Linux
+      uninstall hook. *Open:* the elevated Windows and Linux kernel runs listed in that document.
 
 ## Phase 15 — Release v1
 - [x] Finalize versioning scheme (SemVer) and changelog process (`docs/versioning.md`, `CHANGELOG.md`)
 - [ ] Windows installer (MSI/NSIS via Tauri bundler) with UAC manifest embedded, code-signing  *(bundle config ready; not built; code-signing decision open)*
-      decision, WFP filter cleanup on uninstall
+      decision, WFP filter cleanup on uninstall  *(no cleanup step is needed: WFP filters live in a dynamic session and the engine removes them when the app exits. Runtime confirmation is still open)*
 - [ ] Linux packaging (.deb/.rpm/AppImage via Tauri bundler), documented elevation launch path,
-      nftables/eBPF cleanup on uninstall
+      nftables/eBPF cleanup on uninstall  *(.deb pre-removal hook deletes the block-all nftables table, `packaging/linux/prerm.sh`; eBPF programs end with the process. Package not built yet; RPM and AppImage hooks not written)*
 - [x] Publish LICENSE files + notices in release artifacts, including MaxMind GeoLite2
       attribution notice
 - [x] User-facing docs (install guide, firewall/panic-button guide, GeoLite2 license key setup,
