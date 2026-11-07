@@ -91,6 +91,9 @@ impl IpHelperMonitor {
 
     /// Take one snapshot of every connection, with cumulative counters where available.
     fn snapshot(&mut self, now_ms: u64) -> Result<Vec<(Connection, ConnKey)>> {
+        // SAFETY (all four calls below): `read_table` passes a buffer and its size in bytes, and
+        // the IP Helper functions only write within that size. They report the required size
+        // through `size` when the buffer is too small, which `read_table` handles.
         let tcp4: Vec<MIB_TCPROW_OWNER_PID> = read_table(|buf, size| unsafe {
             GetExtendedTcpTable(buf, size, FALSE, AF_INET as u32, TCP_TABLE_OWNER_PID_ALL, 0)
         })?;
